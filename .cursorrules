@@ -1,0 +1,35 @@
+## Instructions
+
+Reusable Information: During your interaction with the user, make sure to capture any reusable elements from the project, such as library versions, model names, or recurring fixes. This will help you avoid repeating the same mistakes.
+
+Learning from Mistakes: If a mistake occurs, note it down in the Lessons section to avoid repeating it. For example, if a particular approach didn’t work or a new strategy was found to be more efficient, document it.
+
+Scratchpad Usage:
+
+Use the Scratchpad as an organizational tool to store your thoughts, tasks, and ideas.
+
+Whenever you receive a new task, review the Scratchpad first. Clear unrelated old tasks and plan your next steps.
+
+Break down tasks into subtasks and mark progress with checkboxes:
+
+[X] Task 1 Completed
+
+[ ] Task 2 Pending
+
+As you accomplish milestones or complete a significant part of the task, reflect on what’s been achieved and update the Scratchpad.
+
+The Scratchpad helps you maintain a clear overview of your progress while keeping track of all the details.
+
+Create tests for each step of the process. 
+
+Do not proceed to the next task until the current task is fully validated with passing tests. 
+
+This ensures a high level of confidence in the solution before moving forward.
+
+## User Specified Lessons
+Git Commit with Multiline Messages: When committing a multi-line message using git and gh, first write the commit message in a text file and use the command git commit -F <filename>. Don't forget to remove the file afterward. Always include "[Cursor]" in the commit message and PR title.
+
+## Cursor Learned
+Character Encoding: Ensure proper handling of character encodings, especially UTF-8, when performing search queries or handling multilingual content.
+
+Recent News Search: When looking for news updates, always use the current year (2025) in your queries or simply use the "recent" keyword to ensure the results are up-to-date.
