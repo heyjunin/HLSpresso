@@ -1,0 +1,113 @@
+name: HLSpresso E2E Tests
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  e2e-tests:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Get dependencies
+        run: go mod download
+
+      - name: Build HLSpresso
+        run: go build -v -o HLSpresso cmd/transcoder/main.go
+
+      # Create test directories
+      - name: Create test directories
+        run: |
+          mkdir -p test/input
+          mkdir -p test/output
+          mkdir -p test/downloads
+
+      # Download a sample video for testing
+      - name: Download sample video
+        run: |
+          wget -O test/input/sample.mp4 https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4
+
+      # Run HLS transcode test
+      - name: Test HLS transcoding
+        run: |
+          ./HLSpresso -i test/input/sample.mp4 -o test/output/hls_test
+          
+          # Verify output exists
+          if [ ! -f "test/output/hls_test/master.m3u8" ]; then
+            echo "HLS master playlist not created"
+            exit 1
+          fi
+          
+          # Count variant playlists to ensure we have multiple qualities
+          VARIANT_COUNT=$(ls test/output/hls_test/*.m3u8 | wc -l)
+          if [ "$VARIANT_COUNT" -lt 2 ]; then
+            echo "Expected multiple variant playlists, found only $VARIANT_COUNT"
+            exit 1
+          fi
+
+      # Run MP4 transcode test
+      - name: Test MP4 transcoding
+        run: |
+          ./HLSpresso -i test/input/sample.mp4 -o test/output/output.mp4 -t mp4
+          
+          # Verify output exists
+          if [ ! -f "test/output/output.mp4" ]; then
+            echo "MP4 output not created"
+            exit 1
+          fi
+          
+          # Verify file size is reasonable (> 100KB)
+          FILE_SIZE=$(stat -c%s "test/output/output.mp4")
+          if [ "$FILE_SIZE" -lt 100000 ]; then
+            echo "MP4 file size suspiciously small: $FILE_SIZE bytes"
+            exit 1
+          fi
+
+      # Run remote URL test
+      - name: Test remote URL transcoding
+        run: |
+          ./HLSpresso -i https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4 \
+            -o test/output/remote_test \
+            --remote \
+            --download-dir test/downloads
+          
+          # Verify output exists
+          if [ ! -f "test/output/remote_test/master.m3u8" ]; then
+            echo "Remote URL HLS master playlist not created"
+            exit 1
+          fi
+          
+          # Verify download occurred
+          if [ -z "$(ls -A test/downloads)" ]; then
+            echo "Download directory is empty"
+            exit 1
+          fi
+
+      # Run auto-resolution test
+      - name: Test auto-resolution detection
+        run: |
+          ./HLSpresso -i test/input/sample.mp4 \
+            -o test/output/auto_res_test \
+            --auto-resolutions
+          
+          # Verify output exists
+          if [ ! -f "test/output/auto_res_test/master.m3u8" ]; then
+            echo "Auto-resolution HLS master playlist not created"
+            exit 1
+          fi 
