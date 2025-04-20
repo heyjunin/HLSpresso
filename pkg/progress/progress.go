@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/eusoujuninho/HLSpresso/pkg/logger"
+	"github.com/heyjunin/HLSpresso/pkg/logger"
 	"github.com/schollz/progressbar/v3"
 )
 

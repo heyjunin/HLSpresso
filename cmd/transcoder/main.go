@@ -9,10 +9,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/eusoujuninho/HLSpresso/pkg/hls"
-	"github.com/eusoujuninho/HLSpresso/pkg/logger"
-	"github.com/eusoujuninho/HLSpresso/pkg/progress"
-	"github.com/eusoujuninho/HLSpresso/pkg/transcoder"
+	"github.com/heyjunin/HLSpresso/pkg/hls"
+	"github.com/heyjunin/HLSpresso/pkg/logger"
+	"github.com/heyjunin/HLSpresso/pkg/progress"
+	"github.com/heyjunin/HLSpresso/pkg/transcoder"
 	"github.com/spf13/cobra"
 )
 

@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eusoujuninho/HLSpresso/pkg/downloader"
-	"github.com/eusoujuninho/HLSpresso/pkg/errors"
-	"github.com/eusoujuninho/HLSpresso/pkg/hls"
-	"github.com/eusoujuninho/HLSpresso/pkg/logger"
-	"github.com/eusoujuninho/HLSpresso/pkg/progress"
+	"github.com/heyjunin/HLSpresso/pkg/downloader"
+	"github.com/heyjunin/HLSpresso/pkg/errors"
+	"github.com/heyjunin/HLSpresso/pkg/hls"
+	"github.com/heyjunin/HLSpresso/pkg/logger"
+	"github.com/heyjunin/HLSpresso/pkg/progress"
 )
 
 // OutputType represents the type of output to generate

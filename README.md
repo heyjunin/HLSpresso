@@ -26,7 +26,7 @@ A powerful Go-based video transcoding tool that converts videos to HLS adaptive 
 
 ```bash
 # Clone the repository
-git clone https://github.com/eusoujuninho/HLSpresso.git
+git clone https://github.com/heyjunin/HLSpresso.git
 cd HLSpresso
 
 # Install dependencies
@@ -40,7 +40,7 @@ go build -o HLSpresso cmd/transcoder/main.go
 
 ```bash
 # Clone the repository
-git clone https://github.com/eusoujuninho/HLSpresso.git
+git clone https://github.com/heyjunin/HLSpresso.git
 cd HLSpresso
 
 # Build the binary
@@ -322,8 +322,8 @@ import (
     "context"
     "fmt"
 
-    "github.com/eusoujuninho/HLSpresso/pkg/progress"
-    "github.com/eusoujuninho/HLSpresso/pkg/transcoder"
+    "github.com/heyjunin/HLSpresso/pkg/progress"
+    "github.com/heyjunin/HLSpresso/pkg/transcoder"
 )
 
 func main() {
@@ -381,4 +381,4 @@ MIT
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request to the [GitHub repository](https://github.com/eusoujuninho/HLSpresso). 
+Contributions are welcome! Please feel free to submit a Pull Request to the [GitHub repository](https://github.com/heyjunin/HLSpresso). 

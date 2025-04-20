@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/eusoujuninho/HLSpresso/pkg/errors"
-	"github.com/eusoujuninho/HLSpresso/pkg/logger"
-	"github.com/eusoujuninho/HLSpresso/pkg/progress"
+	"github.com/heyjunin/HLSpresso/pkg/errors"
+	"github.com/heyjunin/HLSpresso/pkg/logger"
+	"github.com/heyjunin/HLSpresso/pkg/progress"
 )
 
 // VideoResolution defines a video resolution and bitrate settings

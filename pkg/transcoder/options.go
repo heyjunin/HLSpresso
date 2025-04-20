@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/eusoujuninho/HLSpresso/pkg/hls"
+	"github.com/heyjunin/HLSpresso/pkg/hls"
 )
 
 // ValidateOptions verifica se as opções estão configuradas corretamente

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/eusoujuninho/HLSpresso/pkg/hls"
-	"github.com/eusoujuninho/HLSpresso/pkg/transcoder"
+	"github.com/heyjunin/HLSpresso/pkg/hls"
+	"github.com/heyjunin/HLSpresso/pkg/transcoder"
 )
 
 // TestTranscodeVerticalVideoToHLS tests the transcoding of a vertical video (portrait format)

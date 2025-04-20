@@ -1,4 +1,4 @@
-module github.com/eusoujuninho/HLSpresso
+module github.com/heyjunin/HLSpresso
 
 go 1.21
 
