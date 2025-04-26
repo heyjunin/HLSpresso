@@ -309,50 +309,126 @@ The binaries will be available in the `build` directory.
 
 ### Using as a Library
 
-You can import and use the transcoder programmatically in your own Go code:
+HLSpresso is designed to be easily integrated into your own Go applications. The core functionality resides in the `pkg/` directory, primarily within the `transcoder` package.
+
+**1. Installation:**
+
+Add HLSpresso as a dependency to your project:
+
+```bash
+go get github.com/heyjunin/HLSpresso@latest # Or specify a version tag like @v1.0.0
+```
+
+**2. Basic Usage:**
+
+Here's a basic example demonstrating how to transcode a local file to HLS:
 
 ```go
 package main
 
 import (
-    "context"
-    "fmt"
+	"context"
+	"fmt"
+	"log"
+	"time"
 
-    "github.com/heyjunin/HLSpresso/pkg/progress"
-    "github.com/heyjunin/HLSpresso/pkg/transcoder"
+	"github.com/heyjunin/HLSpresso/pkg/hls"
+	"github.com/heyjunin/HLSpresso/pkg/progress"
+	"github.com/heyjunin/HLSpresso/pkg/transcoder"
 )
 
 func main() {
-    // Create a progress reporter
-    progressReporter := progress.NewReporter()
+	// Create a progress reporter to receive updates
+	// (You can implement your own progress.Reporter interface for custom handling)
+	progressReporter := progress.NewReporter(progress.WithThrottle(1 * time.Second)) // Throttle updates
 
-    // Create transcoder options
-    options := transcoder.Options{
-        InputPath:          "input.mp4",
-        OutputPath:         "output_directory",
-        OutputType:         transcoder.HLSOutput,
-        HLSSegmentDuration: 6,
-        HLSPlaylistType:    "vod",
-    }
+	// Configure the transcoder options
+	options := transcoder.Options{
+		// --- Input ---
+		InputPath:     "input.mp4", // Path to the local video file
+		IsRemoteInput: false,       // Set to true if InputPath is a URL
 
-    // Create transcoder
-    trans, err := transcoder.New(options, progressReporter)
-    if err != nil {
-        fmt.Printf("Error creating transcoder: %v\n", err)
-        return
-    }
+		// --- Output ---
+		OutputPath: "output_hls_directory", // Directory for HLS output (or .mp4 file path for MP4)
+		OutputType: transcoder.HLSOutput,   // Use transcoder.MP4Output for MP4
 
-    // Start transcoding
-    ctx := context.Background()
-    outputPath, err := trans.Transcode(ctx)
-    if err != nil {
-        fmt.Printf("Transcoding failed: %v\n", err)
-        return
-    }
+		// --- HLS Specific (if OutputType is HLSOutput) ---
+		HLSSegmentDuration: 10,            // Segment duration in seconds
+		HLSPlaylistType:    "vod",        // "vod" or "event"
+		// Use default resolutions by leaving HLSResolutions nil or empty.
+		// HLSResolutions: hls.DefaultResolutions,
 
-    fmt.Printf("Transcoding completed successfully. Output at: %s\n", outputPath)
+		// --- Advanced ---
+		// FFmpegBinary: "/path/to/custom/ffmpeg", // Optional: Specify FFmpeg path
+		// FFmpegExtraParams: []string{"-preset", "slow"}, // Optional: Extra FFmpeg flags
+		AllowOverwrite: true, // Optional: Allow overwriting output files
+	}
+
+	// Create a new transcoder instance
+	trans, err := transcoder.New(options, progressReporter)
+	if err != nil {
+		log.Fatalf("Error creating transcoder: %v\n", err)
+	}
+
+	// Start a goroutine to listen for progress updates
+	go func() {
+		for p := range progressReporter.Updates() {
+			fmt.Printf("Progress: %.1f%% - Step: %s (%s)\n", p.Percentage, p.Step, p.Stage)
+		}
+	}()
+
+	// Start transcoding (use context for cancellation)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute) // Example timeout
+	defer cancel()
+
+	fmt.Println("Starting transcoding...")
+	outputFilePath, err := trans.Transcode(ctx)
+	if err != nil {
+		// Handle potential structured errors
+		if e, ok := err.(*errors.StructuredError); ok {
+			log.Fatalf("Transcoding failed (Code: %d): %s - Details: %s\n", e.Code, e.Message, e.Details)
+		} else {
+			log.Fatalf("Transcoding failed: %v\n", err)
+		}
+		return
+	}
+
+	// Close the progress reporter when done
+	progressReporter.Close()
+
+	fmt.Printf("Transcoding completed successfully. Output at: %s\n", outputFilePath)
 }
+
 ```
+
+**3. Custom HLS Resolutions:**
+
+To specify custom HLS resolutions when using HLSpresso as a library, populate the `HLSResolutions` field in the `transcoder.Options` struct. This field takes a slice of `hls.VideoResolution`.
+
+```go
+// Example: Define custom resolutions
+customResolutions := []hls.VideoResolution{
+    {Width: 1920, Height: 1080, VideoBitrate: "5000k", MaxRate: "5350k", BufSize: "7500k", AudioBitrate: "192k"},
+    {Width: 1280, Height: 720, VideoBitrate: "2800k", MaxRate: "2996k", BufSize: "4200k", AudioBitrate: "128k"},
+    {Width: 854, Height: 480, VideoBitrate: "1400k", MaxRate: "1498k", BufSize: "2100k", AudioBitrate: "96k"},
+}
+
+options := transcoder.Options{
+    // ... other options
+    OutputType:     transcoder.HLSOutput,
+    HLSResolutions: customResolutions,
+}
+
+// ... create transcoder and run Transcode() ...
+```
+
+**4. Dependency Injection:**
+
+For more advanced control, you can use `transcoder.NewWithDeps` to inject your own implementations of the logger (`logger.Logger`) or downloader (`downloader.Downloader`).
+
+**5. Error Handling:**
+
+The `Transcode` function can return structured errors defined in the `pkg/errors` package (`errors.StructuredError`). You can check the error type and access fields like `Code`, `Message`, and `Details` for more specific error handling.
 
 ## ❓ Troubleshooting
 
