@@ -20,6 +20,7 @@ var (
 	// Input options
 	inputPath      string
 	isRemoteInput  bool
+	streamFromURL  bool
 	downloadDir    string
 	allowOverwrite bool
 
@@ -51,8 +52,9 @@ It can download videos from remote URLs and generate multiple quality levels.`,
 
 	// Input flags
 	rootCmd.Flags().StringVarP(&inputPath, "input", "i", "", "Input file path or URL (required)")
-	rootCmd.Flags().BoolVar(&isRemoteInput, "remote", false, "Treat input as a remote URL")
-	rootCmd.Flags().StringVar(&downloadDir, "download-dir", "downloads", "Directory to save downloaded files")
+	rootCmd.Flags().BoolVar(&isRemoteInput, "remote", false, "Treat input as a remote URL (downloads first)")
+	rootCmd.Flags().BoolVar(&streamFromURL, "stream", false, "Attempt to stream directly from input URL (implies remote)")
+	rootCmd.Flags().StringVar(&downloadDir, "download-dir", "downloads", "Directory to save downloaded files (if not streaming)")
 	rootCmd.Flags().BoolVar(&allowOverwrite, "overwrite", false, "Allow overwriting existing files")
 
 	// Output flags
@@ -112,17 +114,23 @@ func runTranscoder(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	// Auto-detect if input is a URL
-	if !isRemoteInput && (strings.HasPrefix(inputPath, "http://") || strings.HasPrefix(inputPath, "https://")) {
-		isRemoteInput = true
-		logger.Info("Detected URL input, setting remote mode", "main", nil)
+	// Determine input type and streaming
+	isActuallyRemote := isRemoteInput || streamFromURL || (strings.HasPrefix(inputPath, "http://") || strings.HasPrefix(inputPath, "https://"))
+	if streamFromURL && !isActuallyRemote {
+		logger.Fatal("--stream flag can only be used with URL inputs", "main", nil)
+		return
+	}
+	if !streamFromURL && isActuallyRemote && !isRemoteInput {
+		// Auto-detected URL without --remote or --stream, default to download
+		logger.Info("Detected URL input, using download mode (use --stream to stream directly)", "main", nil)
 	}
 
 	// Create transcoder options
 	options := transcoder.Options{
 		// Input options
 		InputPath:      inputPath,
-		IsRemoteInput:  isRemoteInput,
+		IsRemoteInput:  isActuallyRemote, // Set based on --remote, --stream, or URL detection
+		StreamFromURL:  streamFromURL,    // Set by the --stream flag
 		DownloadDir:    downloadDir,
 		AllowOverwrite: allowOverwrite,
 
