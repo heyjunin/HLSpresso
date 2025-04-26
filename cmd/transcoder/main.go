@@ -33,8 +33,10 @@ var (
 	hlsPlaylistType    string
 
 	// Advanced options
-	ffmpegBinary      string
-	ffmpegExtraParams []string
+	ffmpegBinary       string
+	ffmpegExtraParams  []string
+	progressFilePath   string
+	progressFileFormat string
 )
 
 func main() {
@@ -68,6 +70,8 @@ It can download videos from remote URLs and generate multiple quality levels.`,
 	// Advanced options
 	rootCmd.Flags().StringVar(&ffmpegBinary, "ffmpeg", "ffmpeg", "Path to ffmpeg binary")
 	rootCmd.Flags().StringArrayVar(&ffmpegExtraParams, "ffmpeg-param", []string{}, "Extra parameters to pass to ffmpeg")
+	rootCmd.Flags().StringVar(&progressFilePath, "progress-file", "", "Path to file for writing progress percentage (e.g., progress.txt)")
+	rootCmd.Flags().StringVar(&progressFileFormat, "progress-file-format", "text", "Format for progress file: 'text' (percentage only) or 'json' (full event)")
 
 	// Mark required flags
 	rootCmd.MarkFlagRequired("input")
@@ -97,8 +101,22 @@ func runTranscoder(cmd *cobra.Command, args []string) {
 		cancel()
 	}()
 
-	// Create progress reporter
-	progressReporter := progress.NewReporter()
+	// Validate progress file format
+	progressFileFormatLower := strings.ToLower(progressFileFormat)
+	if progressFileFormatLower != "text" && progressFileFormatLower != "json" {
+		logger.Fatal("Invalid --progress-file-format value. Must be 'text' or 'json'", "main", map[string]interface{}{
+			"value": progressFileFormat,
+		})
+		return
+	}
+
+	// Create progress reporter with options
+	reporterOpts := []progress.ReporterOption{}
+	if progressFilePath != "" {
+		reporterOpts = append(reporterOpts, progress.WithProgressFile(progressFilePath))
+		reporterOpts = append(reporterOpts, progress.WithProgressFileFormat(progressFileFormatLower))
+	}
+	progressReporter := progress.NewReporter(reporterOpts...)
 
 	// Determine output type
 	var outType transcoder.OutputType

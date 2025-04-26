@@ -2,6 +2,8 @@ package progress
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -142,6 +144,169 @@ func TestReporterJSON(t *testing.T) {
 	if parsed["stage"] != "json-stage" {
 		t.Errorf("stage = %q, want %q", parsed["stage"], "json-stage")
 	}
+}
+
+func TestReporterWithProgressFile(t *testing.T) {
+	tempDir := t.TempDir()
+
+	t.Run("FormatText", func(t *testing.T) {
+		progressFilePath := filepath.Join(tempDir, "progress_text.txt")
+
+		// 1. Test Initialization (File Creation/Truncation)
+		initialContent := "initial data"
+		if err := os.WriteFile(progressFilePath, []byte(initialContent), 0644); err != nil {
+			t.Fatalf("Failed to create initial progress file: %v", err)
+		}
+
+		// Default format is text
+		reporter := NewReporter(WithProgressFile(progressFilePath))
+		reporter.Start(100) // Start should write initial state (0.00)
+
+		contentBytes, err := os.ReadFile(progressFilePath)
+		if err != nil {
+			t.Fatalf("Failed to read progress file after Start: %v", err)
+		}
+		content := string(contentBytes)
+		expected := "0.00"
+		if content != expected {
+			t.Errorf("Progress file content after Start = %q, want %q", content, expected)
+		}
+
+		// 2. Test Update
+		reporter.Update(55, "step", "stage")
+
+		contentBytes, err = os.ReadFile(progressFilePath)
+		if err != nil {
+			t.Fatalf("Failed to read progress file after Update: %v", err)
+		}
+		content = string(contentBytes)
+		expected = "55.00"
+		if content != expected {
+			t.Errorf("Progress file content after Update = %q, want %q", content, expected)
+		}
+
+		// 3. Test Complete
+		reporter.Complete()
+
+		contentBytes, err = os.ReadFile(progressFilePath)
+		if err != nil {
+			t.Fatalf("Failed to read progress file after Complete: %v", err)
+		}
+		content = string(contentBytes)
+		expected = "100.00"
+		if content != expected {
+			t.Errorf("Progress file content after Complete = %q, want %q", content, expected)
+		}
+	})
+
+	t.Run("FormatJSON", func(t *testing.T) {
+		progressFilePath := filepath.Join(tempDir, "progress_json.json")
+
+		// 1. Test Initialization (File Creation/Truncation)
+		initialContent := "{}"
+		if err := os.WriteFile(progressFilePath, []byte(initialContent), 0644); err != nil {
+			t.Fatalf("Failed to create initial progress file: %v", err)
+		}
+
+		reporter := NewReporter(WithProgressFile(progressFilePath), WithProgressFileFormat("json"))
+
+		// Capture the event state *before* calling Start to compare later
+		initialEventState := reporter.Event
+		initialEventState.Status = "started" // Expected status after Start
+		initialEventState.Percentage = 0.0   // Expected percentage after Start
+
+		reporter.Start(200)
+
+		contentBytes, err := os.ReadFile(progressFilePath)
+		if err != nil {
+			t.Fatalf("Failed to read progress file after Start: %v", err)
+		}
+
+		var eventFromFileStart ProgressEvent
+		if err := json.Unmarshal(contentBytes, &eventFromFileStart); err != nil {
+			t.Fatalf("Failed to unmarshal JSON after Start: %v\nContent:\n%s", err, string(contentBytes))
+		}
+
+		// Compare fields individually (ignoring Timestamp)
+		if eventFromFileStart.Status != initialEventState.Status {
+			t.Errorf("JSON Start Status = %q, want %q", eventFromFileStart.Status, initialEventState.Status)
+		}
+		if eventFromFileStart.Percentage != initialEventState.Percentage {
+			t.Errorf("JSON Start Percentage = %.2f, want %.2f", eventFromFileStart.Percentage, initialEventState.Percentage)
+		}
+		// Compare other relevant fields if needed (Step, Stage are usually empty on Start)
+
+		// 2. Test Update
+		reporter.Update(110, "json-step", "json-stage")
+
+		updatedEventState := reporter.Event // Capture state after Update
+
+		contentBytes, err = os.ReadFile(progressFilePath)
+		if err != nil {
+			t.Fatalf("Failed to read progress file after Update: %v", err)
+		}
+		var eventFromFileUpdate ProgressEvent
+		if err := json.Unmarshal(contentBytes, &eventFromFileUpdate); err != nil {
+			t.Fatalf("Failed to unmarshal JSON after Update: %v\nContent:\n%s", err, string(contentBytes))
+		}
+
+		// Compare fields individually (ignoring Timestamp)
+		if eventFromFileUpdate.Status != updatedEventState.Status {
+			t.Errorf("JSON Update Status = %q, want %q", eventFromFileUpdate.Status, updatedEventState.Status)
+		}
+		if eventFromFileUpdate.Percentage != updatedEventState.Percentage {
+			t.Errorf("JSON Update Percentage = %.2f, want %.2f", eventFromFileUpdate.Percentage, updatedEventState.Percentage)
+		}
+		if eventFromFileUpdate.Step != updatedEventState.Step {
+			t.Errorf("JSON Update Step = %q, want %q", eventFromFileUpdate.Step, updatedEventState.Step)
+		}
+		if eventFromFileUpdate.Stage != updatedEventState.Stage {
+			t.Errorf("JSON Update Stage = %q, want %q", eventFromFileUpdate.Stage, updatedEventState.Stage)
+		}
+
+		// 3. Test Complete
+		reporter.Complete()
+
+		completedEventState := reporter.Event // Capture state after Complete
+
+		contentBytes, err = os.ReadFile(progressFilePath)
+		if err != nil {
+			t.Fatalf("Failed to read progress file after Complete: %v", err)
+		}
+		var eventFromFileComplete ProgressEvent
+		if err := json.Unmarshal(contentBytes, &eventFromFileComplete); err != nil {
+			t.Fatalf("Failed to unmarshal JSON after Complete: %v\nContent:\n%s", err, string(contentBytes))
+		}
+
+		// Compare fields individually (ignoring Timestamp)
+		if eventFromFileComplete.Status != completedEventState.Status {
+			t.Errorf("JSON Complete Status = %q, want %q", eventFromFileComplete.Status, completedEventState.Status)
+		}
+		if eventFromFileComplete.Percentage != completedEventState.Percentage {
+			t.Errorf("JSON Complete Percentage = %.2f, want %.2f", eventFromFileComplete.Percentage, completedEventState.Percentage)
+		}
+		// Compare other relevant fields if needed
+	})
+
+	// Test for empty path remains the same
+	t.Run("EmptyPath", func(t *testing.T) {
+		emptyPathReporter := NewReporter(WithProgressFile(""))
+		otherFilePath := filepath.Join(tempDir, "should_not_exist.txt")
+
+		// Directly check the internal option
+		if emptyPathReporter.opts.progressFilePath != "" {
+			t.Fatalf("Expected progressFilePath option to be empty, but got %q", emptyPathReporter.opts.progressFilePath)
+		}
+
+		// Call methods to ensure no panic and no file is created
+		emptyPathReporter.Start(10)
+		emptyPathReporter.Update(5, "s", "s")
+		emptyPathReporter.Complete()
+
+		if _, err := os.Stat(otherFilePath); !os.IsNotExist(err) {
+			t.Errorf("Progress file seems to have been created unexpectedly at: %s", otherFilePath)
+		}
+	})
 }
 
 /* // Teste removido pois a função ReportProgress foi depreciada.

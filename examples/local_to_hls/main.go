@@ -18,13 +18,21 @@ func main() {
 	// Assume input file exists at this path
 	inputFile := "input_video.mp4" // Assumes the script copies test_video.mp4 here
 	outputDir := "output_hls_local"
+	// progressFile := "local_progress.txt" // Define progress file path (old)
+	progressFileJSON := "local_progress.json" // Define progress file path for JSON
 
 	// Create a dummy input file for the example to run
 	// createDummyFile(inputFile) // No longer needed
 	// defer os.Remove(inputFile) // Clean up is handled by the script
 
-	// Create a simple console progress reporter
-	reporter := progress.NewReporter() // Default reporter prints to console
+	// Create a simple console progress reporter, also writing to a file in JSON format
+	reporterOpts := []progress.ReporterOption{
+		// progress.WithProgressFile(progressFile), // Old text format
+		progress.WithProgressFile(progressFileJSON),
+		progress.WithProgressFileFormat("json"), // Specify JSON format
+		// progress.WithDescription("Local HLS Task"), // Example of other options
+	}
+	reporter := progress.NewReporter(reporterOpts...)
 
 	log.Println("Starting local HLS transcoding...")
 
@@ -54,6 +62,7 @@ func main() {
 	log.Printf("Local HLS transcoding finished successfully!")
 	log.Printf("Master Playlist: %s", masterPlaylist)
 	log.Printf("Output Directory: %s", outputDir)
+	log.Printf("Progress saved to: %s (JSON format)", progressFileJSON)
 }
 
 // // Helper to create a dummy file for testing (REMOVED)

@@ -198,6 +198,8 @@ Flags:
       --hls-playlist-type string   HLS playlist type: 'vod' or 'event' (default "vod")
       --ffmpeg string              Path to ffmpeg binary (default "ffmpeg")
       --ffmpeg-param stringArray   Extra parameters to pass to ffmpeg
+      --progress-file string       Path to file for writing progress percentage (e.g., progress.txt)
+      --progress-file-format string Format for progress file: 'text' (percentage only) or 'json' (full event) (default "text")
 ```
 
 ## 📜 Shell Script Helper
@@ -349,7 +351,12 @@ import (
 func main() {
 	// Create a progress reporter to receive updates
 	// (You can implement your own progress.Reporter interface for custom handling)
-	progressReporter := progress.NewReporter(progress.WithThrottle(1 * time.Second)) // Throttle updates
+	progressReporter := progress.NewReporter(
+		progress.WithThrottle(1 * time.Second), // Throttle updates
+		// Example: Writing progress to a JSON file
+		progress.WithProgressFile("transcode_progress.json"),
+		progress.WithProgressFileFormat("json"),
+	)
 
 	// Configure the transcoder options
 	options := transcoder.Options{
@@ -403,8 +410,7 @@ func main() {
 	}
 
 	// Close the progress reporter when done
-	progressReporter.Close()
-
+	// Note: DefaultReporter doesn't require explicit Close() anymore
 	fmt.Printf("Transcoding completed successfully. Output at: %s\n", outputFilePath)
 }
 
