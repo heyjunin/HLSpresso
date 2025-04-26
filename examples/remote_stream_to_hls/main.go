@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
+	// "fmt"
 	"log"
 	"time"
 
@@ -20,14 +20,15 @@ func main() {
 	outputDir := "output_hls_remote_stream"
 
 	reporter := progress.NewReporter()
-	defer reporter.Close()
+	// defer reporter.Close() // No Close needed
 
-	go func() {
-		for p := range reporter.Updates() {
-			fmt.Printf("Progress: %.1f%% (Step: %s, Stage: %s)\r", p.Percentage, p.Step, p.Stage)
-		}
-		fmt.Println() // New line after progress finishes
-	}()
+	// Default reporter prints automatically
+	// go func() {
+	// 	for p := range reporter.Updates() {
+	// 		fmt.Printf("Progress: %.1f%% (Step: %s, Stage: %s)\r", p.Percentage, p.Step, p.Stage)
+	// 	}
+	// 	fmt.Println() // New line after progress finishes
+	// }()
 
 	log.Printf("Starting remote HLS transcoding (streaming input) for: %s", remoteURL)
 

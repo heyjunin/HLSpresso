@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"fmt"
+
+	// "fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/heyjunin/HLSpresso/pkg/errors"
@@ -16,21 +16,22 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	inputFile := "input_video.mp4"
+	inputFile := "input_video.mp4" // Assumes the script copies test_video.mp4 here
 	outputFile := "output_video.mp4"
 
-	createDummyFile(inputFile)
-	defer os.Remove(inputFile)
+	// createDummyFile(inputFile) // No longer needed
+	// defer os.Remove(inputFile) // Cleanup is handled by the script
 
 	reporter := progress.NewReporter()
-	defer reporter.Close()
+	// defer reporter.Close() // No longer needed
 
-	go func() {
-		for p := range reporter.Updates() {
-			fmt.Printf("Progress: %.1f%%\r", p.Percentage)
-		}
-		fmt.Println()
-	}()
+	// Default reporter prints to console
+	// go func() {
+	// 	for p := range reporter.Updates() {
+	// 		fmt.Printf(\"Progress: %.1f%%\\r\", p.Percentage)
+	// 	}
+	// 	fmt.Println()
+	// }()
 
 	log.Println("Starting local MP4 transcoding...")
 
@@ -61,15 +62,15 @@ func main() {
 	log.Printf("Output File: %s", resultPath)
 }
 
-// Helper to create a dummy file for testing
-func createDummyFile(path string) {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		log.Printf("Creating dummy input file: %s", path)
-		f, err := os.Create(path)
-		if err != nil {
-			log.Fatalf("Failed to create dummy file: %v", err)
-		}
-		_, _ = f.WriteString("dummy data")
-		f.Close()
-	}
-}
+// // Helper to create a dummy file for testing (REMOVED)
+// func createDummyFile(path string) {
+// 	if _, err := os.Stat(path); os.IsNotExist(err) {
+// 		log.Printf(\"Creating dummy input file: %s\", path)
+// 		f, err := os.Create(path)
+// 		if err != nil {
+// 			log.Fatalf(\"Failed to create dummy file: %v\", err)
+// 		}
+// 		_, _ = f.WriteString(\"dummy data\")
+// 		f.Close()
+// 	}
+// }

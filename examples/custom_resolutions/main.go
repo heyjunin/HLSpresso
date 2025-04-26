@@ -2,9 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
+	// "fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/heyjunin/HLSpresso/pkg/errors"
@@ -20,18 +19,7 @@ func main() {
 	inputFile := "input_video.mp4"
 	outputDir := "output_hls_custom_res"
 
-	createDummyFile(inputFile)
-	defer os.Remove(inputFile)
-
 	reporter := progress.NewReporter()
-	defer reporter.Close()
-
-	go func() {
-		for p := range reporter.Updates() {
-			fmt.Printf("Progress: %.1f%%\r", p.Percentage)
-		}
-		fmt.Println()
-	}()
 
 	log.Println("Starting local HLS transcoding with custom resolutions...")
 
@@ -67,17 +55,4 @@ func main() {
 	log.Printf("Custom resolution HLS transcoding finished successfully!")
 	log.Printf("Master Playlist: %s", masterPlaylist)
 	log.Printf("Output Directory: %s", outputDir)
-}
-
-// Helper to create a dummy file for testing
-func createDummyFile(path string) {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		log.Printf("Creating dummy input file: %s", path)
-		f, err := os.Create(path)
-		if err != nil {
-			log.Fatalf("Failed to create dummy file: %v", err)
-		}
-		_, _ = f.WriteString("dummy data")
-		f.Close()
-	}
 }

@@ -55,4 +55,65 @@ temp/
 
 # Debug files
 debug
+__debug_bin
+
+# Video files
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.ts
+
+# Output/temporary directories from examples/tests
+/output_*
+/temp_downloads/
+/downloads/
+/testdata/temp/
+/testdata/downloads/
+/examples/**/output_*
+/examples/**/temp_downloads/
+/examples/**/*.mp4 # Ignore any mp4 files inside example dirs (like copied test video)
+!/examples/test_video.mp4 # But DO NOT ignore the source test video itself
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# macOS specific files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Local environment configuration
+.env
+.env.local
+
+# Build output directories
+/bin/
+/build/
+/dist/
+
+# Log files
+*.log
+
+# Compiled Object files, Static and Dynamic libs
+*.o
+*.a
+
+# Debug files
+debug
 __debug_bin 

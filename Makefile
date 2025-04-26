@@ -38,6 +38,11 @@ test-e2e:
 	@echo "Running end-to-end tests..."
 	./scripts/run_e2e_tests.sh
 
+# Example tests
+test-examples:
+	@echo "Running library examples tests..."
+	./scripts/run_examples_tests.sh
+
 # All tests
 test: test-unit test-e2e
 
@@ -62,6 +67,7 @@ help:
 	@echo "  make clean          - Remove generated files"
 	@echo "  make test-unit      - Run unit tests"
 	@echo "  make test-e2e       - Run end-to-end tests"
+	@echo "  make test-examples  - Run library examples tests"
 	@echo "  make test           - Run all tests"
 	@echo "  make install        - Install HLSpresso on the system"
 	@echo "  make uninstall      - Remove HLSpresso from the system" 

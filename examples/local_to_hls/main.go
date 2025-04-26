@@ -2,9 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
+	// "fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/heyjunin/HLSpresso/pkg/errors"
@@ -17,23 +16,15 @@ func main() {
 	defer cancel()
 
 	// Assume input file exists at this path
-	inputFile := "input_video.mp4"
+	inputFile := "input_video.mp4" // Assumes the script copies test_video.mp4 here
 	outputDir := "output_hls_local"
 
 	// Create a dummy input file for the example to run
-	createDummyFile(inputFile)
-	defer os.Remove(inputFile) // Clean up dummy file
+	// createDummyFile(inputFile) // No longer needed
+	// defer os.Remove(inputFile) // Clean up is handled by the script
 
 	// Create a simple console progress reporter
 	reporter := progress.NewReporter() // Default reporter prints to console
-	defer reporter.Close()
-
-	go func() {
-		for p := range reporter.Updates() {
-			fmt.Printf("Progress: %.1f%%\r", p.Percentage)
-		}
-		fmt.Println() // New line after progress finishes
-	}()
 
 	log.Println("Starting local HLS transcoding...")
 
@@ -65,16 +56,16 @@ func main() {
 	log.Printf("Output Directory: %s", outputDir)
 }
 
-// Helper to create a dummy file for testing
-func createDummyFile(path string) {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		log.Printf("Creating dummy input file: %s", path)
-		f, err := os.Create(path)
-		if err != nil {
-			log.Fatalf("Failed to create dummy file: %v", err)
-		}
-		// Write some minimal data to avoid potential issues with empty files in ffmpeg/ffprobe
-		_, _ = f.WriteString("dummy data")
-		f.Close()
-	}
-}
+// // Helper to create a dummy file for testing (REMOVED)
+// func createDummyFile(path string) {
+// 	if _, err := os.Stat(path); os.IsNotExist(err) {
+// 		log.Printf(\"Creating dummy input file: %s\", path)
+// 		f, err := os.Create(path)
+// 		if err != nil {
+// 			log.Fatalf(\"Failed to create dummy file: %v\", err)
+// 		}
+// 		// Write some minimal data to avoid potential issues with empty files in ffmpeg/ffprobe
+// 		_, _ = f.WriteString(\"dummy data\")
+// 		f.Close()
+// 	}
+// }

@@ -252,11 +252,19 @@ make test-e2e
 ./scripts/run_e2e_tests.sh
 ```
 
-The e2e tests include:
-- Testing local file to HLS transcoding
-- Testing remote URL to MP4 transcoding
-- Testing vertical video transcoding
-- Testing command line interface
+### Examples Tests
+
+Run the library usage examples located in the `examples/` directory to ensure they execute correctly:
+
+```bash
+# Using make
+make test-examples
+
+# Or directly
+./scripts/run_examples_tests.sh
+```
+
+**Note:** Running example tests requires `ffmpeg` and `ffprobe` to be installed and may take some time due to transcoding operations (even with dummy input files).
 
 ### All Tests
 

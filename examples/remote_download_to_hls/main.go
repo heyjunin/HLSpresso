@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
+	// "fmt"
 	"log"
 	"os"
 	"time"
@@ -27,14 +27,6 @@ func main() {
 	defer os.RemoveAll(downloadDir)
 
 	reporter := progress.NewReporter()
-	defer reporter.Close()
-
-	go func() {
-		for p := range reporter.Updates() {
-			fmt.Printf("Progress: %.1f%% (Step: %s, Stage: %s)\r", p.Percentage, p.Step, p.Stage)
-		}
-		fmt.Println() // New line after progress finishes
-	}()
 
 	log.Printf("Starting remote HLS transcoding (download first) for: %s", remoteURL)
 
