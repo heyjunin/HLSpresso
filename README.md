@@ -430,6 +430,128 @@ For more advanced control, you can use `transcoder.NewWithDeps` to inject your o
 
 The `Transcode` function can return structured errors defined in the `pkg/errors` package (`errors.StructuredError`). You can check the error type and access fields like `Code`, `Message`, and `Details` for more specific error handling.
 
+## 📚 Using HLSpresso as a Library
+
+You can integrate HLSpresso into your own Go applications.
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/heyjunin/HLSpresso/pkg/logger"
+	"github.com/heyjunin/HLSpresso/pkg/progress"
+	"github.com/heyjunin/HLSpresso/pkg/transcoder"
+	"github.com/heyjunin/HLSpresso/pkg/downloader" // Import downloader for non-streaming remote
+)
+
+func main() {
+	ctx := context.Background()
+
+	// Create a logger (e.g., a simple one)
+	appLogger := logger.NewLogger()
+
+	// Create a progress reporter (e.g., a basic console reporter)
+	reporter := progress.NewConsoleReporter()
+	defer reporter.Close()
+
+	// --- Example 1: Local file to HLS ---
+	optsLocal := transcoder.Options{
+		InputPath:  "path/to/your/local_video.mp4",
+		OutputPath: "output/hls_local",
+		OutputType: transcoder.HLSOutput,
+		// Use default HLS settings or specify custom ones
+	}
+	transLocal, err := transcoder.New(optsLocal, reporter)
+	if err != nil {
+		log.Fatalf("Failed to create transcoder for local file: %v", err)
+	}
+
+	log.Println("Starting local HLS transcoding...")
+	masterPlaylist, err := transLocal.Transcode(ctx)
+	if err != nil {
+		appLogger.Error("Local HLS transcoding failed", "main", map[string]interface{}{"error": err.Error()})
+		// Handle structured error if needed:
+		// if sErr, ok := err.(*errors.StructuredError); ok { ... }
+		return
+	}
+	log.Printf("Local HLS transcoding finished. Master playlist: %s\n", masterPlaylist)
+
+
+	// --- Example 2: Remote file to HLS (Download First) ---
+	optsRemoteDownload := transcoder.Options{
+		InputPath:   "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+		OutputPath:  "output/hls_remote_download",
+		OutputType:  transcoder.HLSOutput,
+		DownloadDir: "temp_downloads", // Optional: specify download location
+	}
+	// For remote inputs *without* StreamFromURL, New() provides a default downloader.
+	// Or, provide a custom one using NewWithDeps.
+	transRemoteDownload, err := transcoder.New(optsRemoteDownload, reporter)
+	if err != nil {
+		log.Fatalf("Failed to create transcoder for remote download: %v", err)
+	}
+
+	log.Println("Starting remote HLS transcoding (download first)...")
+	masterPlaylistRemote, err := transRemoteDownload.Transcode(ctx)
+	if err != nil {
+		appLogger.Error("Remote HLS (download) transcoding failed", "main", map[string]interface{}{"error": err.Error()})
+		return
+	}
+	log.Printf("Remote HLS (download) transcoding finished. Master playlist: %s\n", masterPlaylistRemote)
+
+
+	// --- Example 3: Remote file to HLS (Streaming Input) ---
+	optsRemoteStream := transcoder.Options{
+		InputPath:     "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4", // Use a different video for variety
+		OutputPath:    "output/hls_remote_stream",
+		OutputType:    transcoder.HLSOutput,
+		StreamFromURL: true, // Enable streaming input
+	}
+	// When StreamFromURL is true, a downloader is NOT required or used.
+	// We can use New() or NewWithDeps(..., nil).
+	transRemoteStream, err := transcoder.New(optsRemoteStream, reporter)
+	if err != nil {
+		log.Fatalf("Failed to create transcoder for remote stream: %v", err)
+	}
+
+	log.Println("Starting remote HLS transcoding (streaming input)...")
+	masterPlaylistStream, err := transRemoteStream.Transcode(ctx)
+	if err != nil {
+		appLogger.Error("Remote HLS (stream) transcoding failed", "main", map[string]interface{}{"error": err.Error()})
+		return
+	}
+	log.Printf("Remote HLS (stream) transcoding finished. Master playlist: %s\n", masterPlaylistStream)
+}
+
+```
+
+### Streaming Input (`StreamFromURL`)
+
+By default, if the `InputPath` is a URL, HLSpresso will download the entire video file to a temporary directory (`DownloadDir`) before starting the transcoding process. This ensures the process is less susceptible to network interruptions during the potentially long transcoding phase.
+
+However, you can enable direct streaming input by setting `StreamFromURL: true` in the `transcoder.Options`.
+
+```go
+opts := transcoder.Options{
+	InputPath:     "https://your-video-source.com/video.mp4",
+	OutputPath:    "output/hls_stream",
+	StreamFromURL: true, // Process directly from the URL
+}
+```
+
+**Considerations:**
+
+*   **Network Dependency:** When `StreamFromURL` is true, the entire transcoding process relies on a stable network connection to the input URL. Network errors will cause the transcoding to fail.
+*   **Server Support:** The server hosting the video must support HTTP range requests (seeking) for optimal performance and compatibility with FFmpeg.
+*   **Downloader Skipped:** Features provided by the `pkg/downloader` (like custom retry logic, specific timeouts during download) are bypassed when streaming directly. FFmpeg handles the network connection.
+*   **No Downloader Needed:** When `StreamFromURL` is true, you do not need to provide a `downloader` instance when using `transcoder.NewWithDeps`.
+
+Choose the method (download first or stream directly) based on your reliability requirements and the nature of your video source.
+
 ## ❓ Troubleshooting
 
 ### Common Errors

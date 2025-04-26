@@ -97,6 +97,8 @@ type Transcoder struct {
 
 // New creates a new Transcoder with the given options and progress reporter.
 // It uses default implementations for logging and downloading.
+// If the input is remote (URL) and StreamFromURL is false (default),
+// it automatically provides a basic downloader instance.
 // Returns an error if the provided options are invalid.
 func New(options Options, progressReporter progress.Reporter) (*Transcoder, error) {
 	// Determine if input is remote early to decide on default downloader
@@ -114,9 +116,14 @@ func New(options Options, progressReporter progress.Reporter) (*Transcoder, erro
 
 // NewWithDeps creates a new Transcoder with custom dependencies.
 // This allows injecting specific logger or downloader implementations, useful for testing
-// or advanced integration. Pass nil for dl to use the default downloader behavior if
-// IsRemoteInput is true.
-// Returns an error if the provided options are invalid.
+// or advanced integration.
+//
+// Note on downloader:
+// - If options.InputPath is a URL and options.StreamFromURL is false, a non-nil downloader (dl) *must* be provided.
+// - If options.StreamFromURL is true, the downloader (dl) is ignored and can be nil.
+// - If options.InputPath is a local path, the downloader (dl) is ignored and can be nil.
+//
+// Returns an error if the provided options are invalid (e.g., missing paths, missing downloader when required).
 func NewWithDeps(options Options, progressReporter progress.Reporter, logger logger.Logger, dl *downloader.Downloader) (*Transcoder, error) {
 	// Set defaults if not specified
 	if options.OutputType == "" {
