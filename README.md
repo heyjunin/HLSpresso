@@ -188,8 +188,9 @@ Usage:
 Flags:
   -h, --help                       Display help information
   -i, --input string               Input file path or URL (required)
-      --remote                     Treat input as a remote URL
-      --download-dir string        Directory to save downloaded files (default "downloads")
+      --remote                     Treat input as a remote URL (downloads first)
+      --stream                     Attempt to stream directly from input URL (implies remote)
+      --download-dir string        Directory to save downloaded files (if not streaming) (default "downloads")
       --overwrite                  Allow overwriting existing files
   -o, --output string              Output directory or file path (required)
   -t, --type string                Output type: 'hls' or 'mp4' (default "hls")
