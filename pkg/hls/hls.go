@@ -257,11 +257,13 @@ func (g *Generator) buildFFmpegArgs() []string {
 
 	args = append(args, "-var_stream_map", streamMap)
 
-	// Add output pattern
-	args = append(args, filepath.Join(g.options.OutputDir, "stream_%v/playlist.m3u8"))
+	// Add any extra parameters BEFORE the final output pattern
+	if len(g.options.FFmpegExtraParams) > 0 {
+		args = append(args, g.options.FFmpegExtraParams...)
+	}
 
-	// Add any extra parameters
-	args = append(args, g.options.FFmpegExtraParams...)
+	// Add output pattern LAST
+	args = append(args, filepath.Join(g.options.OutputDir, "stream_%v/playlist.m3u8"))
 
 	return args
 }
