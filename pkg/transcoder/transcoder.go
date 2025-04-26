@@ -20,42 +20,67 @@ import (
 	"github.com/heyjunin/HLSpresso/pkg/progress"
 )
 
-// OutputType represents the type of output to generate
+// OutputType represents the type of output to generate (HLS or MP4).
 type OutputType string
 
 const (
-	// MP4Output generates a single MP4 file
+	// MP4Output specifies that the output should be a single MP4 file.
 	MP4Output OutputType = "mp4"
-	// HLSOutput generates HLS adaptive streaming files
+	// HLSOutput specifies that the output should be HLS adaptive streaming files
+	// (manifests and segments).
 	HLSOutput OutputType = "hls"
 )
 
-// Options contains settings for the transcoder
+// Options contains settings for configuring the Transcoder.
 type Options struct {
-	// Input options
-	InputPath      string
-	IsRemoteInput  bool
-	DownloadDir    string
+	// InputPath is the path to the local input video file or a URL if IsRemoteInput is true.
+	InputPath string
+	// IsRemoteInput indicates whether the InputPath should be treated as a remote URL
+	// to be downloaded first.
+	IsRemoteInput bool
+	// DownloadDir specifies the directory where remote files should be downloaded.
+	// Defaults to "downloads" if not set. Only used if IsRemoteInput is true.
+	DownloadDir string
+	// AllowOverwrite allows the transcoder to overwrite existing output files or
+	// downloaded files without error.
 	AllowOverwrite bool
 
-	// Output options
+	// OutputPath specifies the destination for the transcoded output.
+	// For HLSOutput, this should be a directory where manifests and segments will be stored.
+	// For MP4Output, this should be the full path to the output MP4 file.
 	OutputPath string
+	// OutputType determines the format of the output (HLS or MP4).
+	// Defaults to HLSOutput if not set.
 	OutputType OutputType
 
-	// HLS-specific options
+	// HLSSegmentDuration sets the target duration for HLS segments in seconds.
+	// Only used if OutputType is HLSOutput. Defaults to 10.
 	HLSSegmentDuration int
-	HLSResolutions     []hls.VideoResolution
-	HLSPlaylistType    string
+	// HLSResolutions defines the specific quality levels (resolution, bitrates)
+	// for HLS adaptive streaming. If nil or empty and UseAutoResolutions is false,
+	// default resolutions will be used.
+	// Only used if OutputType is HLSOutput.
+	HLSResolutions []hls.VideoResolution
+	// HLSPlaylistType specifies the HLS playlist type ("vod" or "event").
+	// Only used if OutputType is HLSOutput. Defaults to "vod".
+	HLSPlaylistType string
 
-	// Advanced options
-	FFmpegBinary      string
+	// FFmpegBinary allows specifying a custom path to the ffmpeg executable.
+	// Defaults to "ffmpeg" if not set (assuming it's in the system PATH).
+	FFmpegBinary string
+	// FFmpegExtraParams provides a way to pass additional command-line arguments
+	// directly to the underlying ffmpeg process. Use with caution.
 	FFmpegExtraParams []string
 
-	// Auto-resolution options
+	// UseAutoResolutions, if true, attempts to detect the input video's resolution
+	// and automatically generates a set of suitable HLS resolutions, overriding
+	// the HLSResolutions field.
+	// Only used if OutputType is HLSOutput.
 	UseAutoResolutions bool
 }
 
-// Transcoder handles video transcoding
+// Transcoder handles the video transcoding process.
+// It should be created using New() or NewWithDeps().
 type Transcoder struct {
 	options    Options
 	progRep    progress.Reporter
@@ -63,12 +88,18 @@ type Transcoder struct {
 	downloader *downloader.Downloader
 }
 
-// New creates a new Transcoder with default dependencies
+// New creates a new Transcoder with the given options and progress reporter.
+// It uses default implementations for logging and downloading.
+// Returns an error if the provided options are invalid.
 func New(options Options, progressReporter progress.Reporter) (*Transcoder, error) {
 	return NewWithDeps(options, progressReporter, logger.NewLogger(), nil)
 }
 
-// NewWithDeps creates a new Transcoder with custom dependencies
+// NewWithDeps creates a new Transcoder with custom dependencies.
+// This allows injecting specific logger or downloader implementations, useful for testing
+// or advanced integration. Pass nil for dl to use the default downloader behavior if
+// IsRemoteInput is true.
+// Returns an error if the provided options are invalid.
 func NewWithDeps(options Options, progressReporter progress.Reporter, logger logger.Logger, dl *downloader.Downloader) (*Transcoder, error) {
 	// Set defaults if not specified
 	if options.OutputType == "" {
@@ -105,7 +136,12 @@ func NewWithDeps(options Options, progressReporter progress.Reporter, logger log
 	}, nil
 }
 
-// Transcode performs the video transcoding process
+// Transcode executes the video transcoding process based on the options the Transcoder
+// was initialized with.
+// The context can be used to cancel the transcoding operation (e.g., on timeout or user request).
+// It returns the path to the primary output file (e.g., the main HLS manifest or the MP4 file)
+// upon successful completion, or an error if the process fails. The error may be a
+// *errors.StructuredError containing more details.
 func (t *Transcoder) Transcode(ctx context.Context) (string, error) {
 	// Primeiro, verificar se o FFmpeg está disponível
 	if err := t.checkFFmpeg(); err != nil {
@@ -168,7 +204,9 @@ func (t *Transcoder) Transcode(ctx context.Context) (string, error) {
 	}
 }
 
-// handleInput processes the input path (downloading if needed)
+// handleInput processes the input path, downloading the file if Options.IsRemoteInput is true.
+// Returns the path to the local input file ready for transcoding, or an error.
+// The context is used for potential download cancellation.
 func (t *Transcoder) handleInput(ctx context.Context) (string, error) {
 	// If input is not remote or explicit flag set to false, just return the path
 	if !t.options.IsRemoteInput {
@@ -242,7 +280,8 @@ func (t *Transcoder) handleInput(ctx context.Context) (string, error) {
 	return downloadedPath, nil
 }
 
-// createHLS generates HLS adaptive streaming files
+// createHLS generates HLS adaptive streaming files based on the transcoder's options.
+// Deprecated: This function's logic is now part of the internal createHLSStreams.
 func (t *Transcoder) createHLS(ctx context.Context, inputPath string) (string, error) {
 	t.logger.Info("Creating HLS adaptive streams", "transcoder", map[string]interface{}{
 		"input":  inputPath,
@@ -278,7 +317,8 @@ func (t *Transcoder) createHLS(ctx context.Context, inputPath string) (string, e
 	return masterPlaylistPath, nil
 }
 
-// createMP4 generates a single MP4 output file
+// createMP4 generates a single MP4 file based on the transcoder's options.
+// Deprecated: This function's logic is now part of the internal transcodeToMP4.
 func (t *Transcoder) createMP4(ctx context.Context, inputPath string) (string, error) {
 	t.logger.Info("Transcoding to MP4", "transcoder", map[string]interface{}{
 		"input":  inputPath,

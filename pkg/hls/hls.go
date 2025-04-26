@@ -16,44 +16,73 @@ import (
 	"github.com/heyjunin/HLSpresso/pkg/progress"
 )
 
-// VideoResolution defines a video resolution and bitrate settings
+// VideoResolution defines the parameters for a single HLS quality level (variant stream).
+// It includes resolution (width, height) and bitrates for video and audio.
 type VideoResolution struct {
-	Width        int    `json:"width"`
-	Height       int    `json:"height"`
+	// Width of the video stream in pixels.
+	Width int `json:"width"`
+	// Height of the video stream in pixels.
+	Height int `json:"height"`
+	// VideoBitrate specifies the target average video bitrate (e.g., "2800k").
 	VideoBitrate string `json:"video_bitrate"`
-	MaxRate      string `json:"max_rate"`
-	BufSize      string `json:"buf_size"`
+	// MaxRate defines the maximum allowed video bitrate (e.g., "2996k").
+	// Used for constraining VBR encoding.
+	MaxRate string `json:"max_rate"`
+	// BufSize specifies the video buffer size (e.g., "4200k").
+	// Related to VBV (Video Buffering Verifier).
+	BufSize string `json:"buf_size"`
+	// AudioBitrate specifies the target audio bitrate (e.g., "128k").
 	AudioBitrate string `json:"audio_bitrate"`
 }
 
-// DefaultResolutions provides common video resolutions for adaptive streaming
+// DefaultResolutions provides a common set of video resolutions and bitrates
+// for generating standard HLS adaptive streams (1080p, 720p, 480p).
 var DefaultResolutions = []VideoResolution{
 	{Width: 1920, Height: 1080, VideoBitrate: "5000k", MaxRate: "5350k", BufSize: "7500k", AudioBitrate: "192k"}, // 1080p
 	{Width: 1280, Height: 720, VideoBitrate: "2800k", MaxRate: "2996k", BufSize: "4200k", AudioBitrate: "128k"},  // 720p
 	{Width: 854, Height: 480, VideoBitrate: "1400k", MaxRate: "1498k", BufSize: "2100k", AudioBitrate: "96k"},    // 480p
 }
 
-// Options contains settings for HLS generation
+// Options contains settings specific to the HLS generation process.
+// These are typically configured internally by the Transcoder based on its own Options,
+// but can be used directly if using the hls.Generator independently.
 type Options struct {
-	InputFile         string
-	OutputDir         string
-	SegmentDuration   int
-	PlaylistType      string
-	Resolutions       []VideoResolution
-	MasterPlaylist    string
-	SegmentFormat     string
-	VariantStreamMap  string
-	FFmpegBinary      string
-	Progress          progress.Reporter
+	// InputFile is the path to the local video file to be transcoded.
+	InputFile string
+	// OutputDir is the directory where HLS manifests and segments will be stored.
+	OutputDir string
+	// SegmentDuration sets the target duration for HLS segments in seconds. Defaults to 10.
+	SegmentDuration int
+	// PlaylistType specifies the HLS playlist type ("vod" or "event"). Defaults to "vod".
+	PlaylistType string
+	// Resolutions defines the specific quality levels for the adaptive stream.
+	// Defaults to DefaultResolutions if empty.
+	Resolutions []VideoResolution
+	// MasterPlaylist specifies the filename for the master HLS playlist. Defaults to "master.m3u8".
+	MasterPlaylist string
+	// SegmentFormat defines the format for HLS segments ("mpegts" or "fmp4"). Defaults to "mpegts".
+	SegmentFormat string
+	// VariantStreamMap defines the ffmpeg -var_stream_map argument. If empty, a default
+	// map is generated based on the Resolutions.
+	VariantStreamMap string
+	// FFmpegBinary allows specifying a custom path to the ffmpeg executable. Defaults to "ffmpeg".
+	FFmpegBinary string
+	// Progress is an optional progress.Reporter to receive updates during HLS generation.
+	Progress progress.Reporter
+	// FFmpegExtraParams provides a way to pass additional command-line arguments
+	// directly to the underlying ffmpeg process.
 	FFmpegExtraParams []string
 }
 
-// Generator handles HLS playlist generation
+// Generator handles the low-level HLS playlist and segment generation using FFmpeg.
+// It is typically used internally by the Transcoder but can be instantiated directly
+// using New() for more granular control over HLS generation.
 type Generator struct {
 	options Options
 }
 
-// New creates a new HLS generator
+// New creates a new HLS Generator instance with the provided options.
+// It sets default values for options that are not specified.
 func New(options Options) *Generator {
 	// Set defaults if not specified
 	if options.SegmentDuration == 0 {
@@ -80,7 +109,11 @@ func New(options Options) *Generator {
 	}
 }
 
-// CreateHLS generates an adaptive HLS stream from the input video
+// CreateHLS generates the adaptive HLS stream (master playlist, variant playlists, segments)
+// based on the options the Generator was initialized with.
+// It executes the underlying ffmpeg command.
+// The context can be used to cancel the ffmpeg execution.
+// Returns the path to the generated master playlist file or an error if the process fails.
 func (g *Generator) CreateHLS(ctx context.Context) (string, error) {
 	// Create output directory
 	if err := os.MkdirAll(g.options.OutputDir, 0755); err != nil {
@@ -167,7 +200,9 @@ func (g *Generator) CreateHLS(ctx context.Context) (string, error) {
 	return masterPath, nil
 }
 
-// buildFFmpegArgs constructs the ffmpeg command arguments
+// buildFFmpegArgs constructs the slice of command-line arguments for the ffmpeg process
+// based on the Generator's options.
+// This is an internal helper function.
 func (g *Generator) buildFFmpegArgs() []string {
 	args := []string{
 		"-i", g.options.InputFile,
@@ -231,7 +266,9 @@ func (g *Generator) buildFFmpegArgs() []string {
 	return args
 }
 
-// buildFilterGraph constructs the FFmpeg filter graph for video splits and scaling
+// buildFilterGraph constructs the complex FFmpeg filter graph string required for
+// splitting the input video and scaling it to each specified resolution.
+// This is an internal helper function.
 func buildFilterGraph(numStreams int, resolutions []VideoResolution) string {
 	// Create video split
 	filter := fmt.Sprintf("[0:v]split=%d", numStreams)
@@ -253,7 +290,10 @@ func buildFilterGraph(numStreams int, resolutions []VideoResolution) string {
 	return filter
 }
 
-// estimateTotalFrames tries to get the total frame count from the input video
+// estimateTotalFrames attempts to get the total frame count of the input video using ffprobe.
+// Returns 0 if ffprobe fails or the frame count cannot be determined.
+// This is used for initializing the progress reporter.
+// This is an internal helper function.
 func estimateTotalFrames(inputFile string) int64 {
 	cmd := exec.Command("ffprobe",
 		"-v", "error",

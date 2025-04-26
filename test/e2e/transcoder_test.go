@@ -129,7 +129,19 @@ func (m *MockProgressReporter) Complete() {
 	m.events = append(m.events, event)
 }
 
-// JSON retorna o evento de progresso atual como JSON
+// Close is a no-op implementation for the mock reporter to satisfy the interface.
+func (m *MockProgressReporter) Close() {
+	// No-op for mock
+}
+
+// Updates returns a closed channel, as the mock reporter primarily uses GetEvents().
+func (m *MockProgressReporter) Updates() <-chan progress.ProgressEvent {
+	ch := make(chan progress.ProgressEvent)
+	close(ch)
+	return ch
+}
+
+// JSON returns the last captured event as JSON, or an error if none exists.
 func (m *MockProgressReporter) JSON() (string, error) {
 	currentEvent := progress.ProgressEvent{
 		Status:     m.lastStatus,

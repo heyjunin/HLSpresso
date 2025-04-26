@@ -5,10 +5,10 @@ import (
 	"math"
 )
 
-// Conjunto padrão de qualidades para diferentes resoluções
+// DefaultBitrates provides recommended bitrate settings (video, maxrate, bufsize, audio)
+// for common resolution names (e.g., "1080p", "720p").
+// These are used by GenerateAutoResolutions to select appropriate bitrates.
 var (
-	// Bitrates recomendados para diferentes resoluções (em kb/s)
-	// Seguindo diretrizes comuns de streaming
 	DefaultBitrates = map[string]struct {
 		Video   string
 		MaxRate string
@@ -25,9 +25,13 @@ var (
 	}
 )
 
-// GenerateAutoResolutions analisa a resolução original e o aspect ratio do vídeo
-// e gera um conjunto apropriado de resoluções para streaming adaptativo HLS,
-// sem nunca exceder a resolução original (sem upscaling)
+// GenerateAutoResolutions analyzes the original video dimensions (width, height)
+// and generates a suitable set of VideoResolution structs for HLS adaptive streaming.
+// It preserves the aspect ratio of the input video and includes the original resolution
+// along with lower standard resolutions (like 1080p, 720p, 480p etc.) that are
+// smaller than the original.
+// It avoids upscaling (generating resolutions higher than the original).
+// The bitrates for each generated resolution are based on the DefaultBitrates map.
 func GenerateAutoResolutions(originalWidth, originalHeight int) []VideoResolution {
 	// Determinar se é vídeo vertical ou horizontal
 	isVertical := originalHeight > originalWidth
@@ -145,7 +149,8 @@ func GenerateAutoResolutions(originalWidth, originalHeight int) []VideoResolutio
 	return resolutions
 }
 
-// GetAutoResolutionNames retorna uma lista de nomes das resoluções disponíveis
+// GetAutoResolutionNames returns a slice of strings containing the names (like "1080p", "720p")
+// of the resolutions defined in the DefaultBitrates map.
 func GetAutoResolutionNames() []string {
 	names := []string{}
 	for name := range DefaultBitrates {
@@ -154,7 +159,9 @@ func GetAutoResolutionNames() []string {
 	return names
 }
 
-// FormatAutoResolutions formata a lista de resoluções em uma string para log ou exibição
+// FormatAutoResolutions takes a slice of VideoResolution structs and returns a
+// human-readable string representation, typically used for logging.
+// Example output: "1920x1080@5000k, 1280x720@2800k, 854x480@1400k"
 func FormatAutoResolutions(resolutions []VideoResolution) string {
 	result := ""
 	for i, res := range resolutions {

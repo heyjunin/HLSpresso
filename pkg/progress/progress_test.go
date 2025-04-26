@@ -2,7 +2,6 @@ package progress
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 )
 
@@ -145,6 +144,7 @@ func TestReporterJSON(t *testing.T) {
 	}
 }
 
+/* // Teste removido pois a função ReportProgress foi depreciada.
 func TestReportProgress(t *testing.T) {
 	reporter := NewReporter()
 	reporter.Start(100)
@@ -160,3 +160,4 @@ func TestReportProgress(t *testing.T) {
 		t.Errorf("ReportProgress output does not contain expected data: %s", jsonStr)
 	}
 }
+*/

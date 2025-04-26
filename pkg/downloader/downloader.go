@@ -14,22 +14,32 @@ import (
 	"github.com/heyjunin/HLSpresso/pkg/progress"
 )
 
-// Options represents download options
+// Options represents configuration options for the Downloader.
 type Options struct {
-	URL           string
-	OutputPath    string
-	Timeout       time.Duration
-	Progress      progress.Reporter
+	// URL is the web address of the file to be downloaded.
+	URL string
+	// OutputPath is the local file system path where the downloaded file will be saved.
+	OutputPath string
+	// Timeout sets the maximum time allowed for the HTTP download operation.
+	// Defaults to 30 minutes if not specified.
+	Timeout time.Duration
+	// Progress is an optional progress.Reporter to receive updates on the download progress.
+	Progress progress.Reporter
+	// AllowOverride, if true, allows the downloader to overwrite an existing file
+	// at the OutputPath. If false and the file exists, the download is skipped.
 	AllowOverride bool
 }
 
-// Downloader downloads video files from URLs
+// Downloader handles the process of downloading files from a given URL.
+// It supports progress reporting and timeouts.
+// Create instances using New().
 type Downloader struct {
 	client  *http.Client
 	options Options
 }
 
-// New creates a new Downloader
+// New creates a new Downloader instance configured with the provided options.
+// It sets a default timeout of 30 minutes if Options.Timeout is zero.
 func New(options Options) *Downloader {
 	// Set default timeout if not specified
 	if options.Timeout == 0 {
@@ -46,7 +56,12 @@ func New(options Options) *Downloader {
 	}
 }
 
-// Download downloads a file from URL to the specified output path
+// Download initiates the file download from the URL specified in the Downloader's options
+// and saves it to the specified OutputPath.
+// The context can be used to cancel the download operation.
+// It handles directory creation, checks for existing files (based on AllowOverride),
+// reports progress (if a reporter is provided), and handles potential errors.
+// Returns the final output path upon successful download, or an error.
 func (d *Downloader) Download(ctx context.Context) (string, error) {
 	// Create output directory if it doesn't exist
 	outputDir := filepath.Dir(d.options.OutputPath)
@@ -128,7 +143,8 @@ func (d *Downloader) Download(ctx context.Context) (string, error) {
 	return d.options.OutputPath, nil
 }
 
-// progressReader is a reader wrapper that reports download progress
+// progressReader is an internal io.Reader wrapper used to track download progress
+// by reporting the number of bytes read via a progress.Reporter.
 type progressReader struct {
 	reader   io.Reader
 	reporter progress.Reporter
@@ -136,7 +152,8 @@ type progressReader struct {
 	read     int64
 }
 
-// Read reads data and updates progress
+// Read implements the io.Reader interface for progressReader.
+// It reads from the underlying reader and updates the progress reporter.
 func (pr *progressReader) Read(p []byte) (int, error) {
 	n, err := pr.reader.Read(p)
 	if n > 0 {
