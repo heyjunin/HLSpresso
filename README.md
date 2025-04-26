@@ -80,15 +80,15 @@ Create HLS with default quality levels (1080p, 720p, 480p):
 ./HLSpresso -i input_video.mp4 -o output_directory
 ```
 
-### 2. Custom HLS with Specific Resolutions
+### 2. HLS with Default Resolutions
+
+This example creates HLS streams using the default built-in quality levels.
 
 ```bash
-./HLSpresso -i input_video.mp4 -o output_directory \
-  --hls-resolutions "1920x1080:5000k:5350k:7500k:192k,1280x720:2800k:2996k:4200k:128k,854x480:1400k:1498k:2100k:96k"
+./HLSpresso -i input_video.mp4 -o output_directory
 ```
 
-Each resolution is specified in the format:
-`width x height : video bitrate : max bitrate : buffer size : audio bitrate`
+*Note: Currently, specifying custom HLS resolutions via the command line is not supported. The tool uses default resolutions. For custom resolutions, please use HLSpresso as a library.*
 
 ### 3. Custom HLS Segment Duration
 
@@ -125,21 +125,19 @@ Create a simple MP4 file with custom FFmpeg parameters:
 
 ### 7. Vertical Video Support
 
-Process vertical videos (portrait mode) while maintaining aspect ratio:
+Process vertical videos (portrait mode) while maintaining aspect ratio using default HLS resolutions:
 
 ```bash
-./HLSpresso -i vertical_video.mp4 -o output_directory \
-  --hls-resolutions "720x1280:2800k:2996k:4200k:128k,540x960:1400k:1498k:2100k:96k,360x640:800k:856k:1200k:64k"
+./HLSpresso -i vertical_video.mp4 -o output_directory
 ```
 
 ### 8. Social Media Optimized Vertical Video
 
-Create vertical video with optimized settings for social media:
+Create vertical video with optimized settings for social media (using default HLS resolutions):
 
 ```bash
 ./HLSpresso -i vertical_video.mp4 -o output_directory \
-  --hls-segment-duration 2 \
-  --hls-resolutions "720x1280:3000k:3200k:4500k:128k,540x960:1800k:1900k:2700k:96k,360x640:900k:950k:1400k:64k"
+  --hls-segment-duration 2
 ```
 
 ### 9. HLS with Custom FFmpeg Path
@@ -169,15 +167,14 @@ Set a custom directory for downloaded remote videos:
 
 ### 12. Combine Multiple Options
 
-Combine various options for advanced use cases:
+Combine various options for advanced use cases (using default HLS resolutions):
 
 ```bash
 ./HLSpresso -i https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4 \
   -o output_directory \
   --remote \
   --hls-segment-duration 4 \
-  --hls-playlist-type vod \
-  --hls-resolutions "1280x720:2800k:2996k:4200k:128k,854x480:1400k:1498k:2100k:96k,640x360:800k:856k:1200k:64k"
+  --hls-playlist-type vod
 ```
 
 ## 🧰 Command Line Reference
@@ -198,7 +195,6 @@ Flags:
   -t, --type string                Output type: 'hls' or 'mp4' (default "hls")
       --hls-segment-duration int   HLS segment duration in seconds (default 10)
       --hls-playlist-type string   HLS playlist type: 'vod' or 'event' (default "vod")
-      --hls-resolutions string     Custom resolutions for HLS (format: widthxheight:vbr:maxrate:bufsize:abr,...)
       --ffmpeg string              Path to ffmpeg binary (default "ffmpeg")
       --ffmpeg-param stringArray   Extra parameters to pass to ffmpeg
 ```
