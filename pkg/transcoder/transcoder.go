@@ -77,6 +77,13 @@ type Options struct {
 	// the HLSResolutions field.
 	// Only used if OutputType is HLSOutput.
 	UseAutoResolutions bool
+
+	// StreamFromURL, if true and InputPath is a URL, instructs the transcoder to
+	// attempt streaming directly from the URL via ffmpeg instead of downloading
+	// the file first. This requires ffmpeg to have network access and support
+	// for the URL's protocol. The Downloader is not used in this mode.
+	// Defaults to false.
+	StreamFromURL bool
 }
 
 // Transcoder handles the video transcoding process.
@@ -92,7 +99,17 @@ type Transcoder struct {
 // It uses default implementations for logging and downloading.
 // Returns an error if the provided options are invalid.
 func New(options Options, progressReporter progress.Reporter) (*Transcoder, error) {
-	return NewWithDeps(options, progressReporter, logger.NewLogger(), nil)
+	// Determine if input is remote early to decide on default downloader
+	isRemote, _ := url.ParseRequestURI(options.InputPath)
+	isRemoteInput := (isRemote != nil && (isRemote.Scheme == "http" || isRemote.Scheme == "https"))
+
+	// Create a default downloader only if needed (remote input and not streaming)
+	var defaultDownloader *downloader.Downloader
+	if isRemoteInput && !options.StreamFromURL {
+		defaultDownloader = &downloader.Downloader{}
+	}
+
+	return NewWithDeps(options, progressReporter, logger.NewLogger(), defaultDownloader)
 }
 
 // NewWithDeps creates a new Transcoder with custom dependencies.
@@ -120,19 +137,23 @@ func NewWithDeps(options Options, progressReporter progress.Reporter, logger log
 		return nil, errors.New(errors.ValidationError, "Output path is required", "", 2)
 	}
 
-	// Se não foi fornecido um downloader e estamos processando entrada remota, criar um novo
-	var downloaderInstance *downloader.Downloader
-	if dl != nil {
-		downloaderInstance = dl
-	} else if options.IsRemoteInput {
-		downloaderInstance = &downloader.Downloader{}
+	// Check if input is remote
+	isRemote, _ := url.ParseRequestURI(options.InputPath)
+	options.IsRemoteInput = (isRemote != nil && (isRemote.Scheme == "http" || isRemote.Scheme == "https"))
+
+	// Validate downloader requirement
+	if options.IsRemoteInput && !options.StreamFromURL && dl == nil {
+		// Se não foi fornecido um downloader e estamos processando entrada remota
+		// E não estamos no modo StreamFromURL, retornar erro.
+		// (No modo StreamFromURL, o downloader não é necessário)
+		return nil, errors.New(errors.ValidationError, "Downloader dependency is required for remote inputs when StreamFromURL is false", "", 3)
 	}
 
 	return &Transcoder{
 		options:    options,
 		progRep:    progressReporter,
 		logger:     logger,
-		downloader: downloaderInstance,
+		downloader: dl, // Assign the provided downloader (can be nil if not needed)
 	}, nil
 }
 
@@ -148,7 +169,7 @@ func (t *Transcoder) Transcode(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	// Processar o input (download se for remoto)
+	// Processar o input (baixar se for remoto e não estiver no modo stream)
 	inputPath, err := t.handleInput(ctx)
 	if err != nil {
 		return "", err
@@ -204,21 +225,40 @@ func (t *Transcoder) Transcode(ctx context.Context) (string, error) {
 	}
 }
 
-// handleInput processes the input path, downloading the file if Options.IsRemoteInput is true.
-// Returns the path to the local input file ready for transcoding, or an error.
-// The context is used for potential download cancellation.
+// handleInput processes the input path. If the input is a remote URL and
+// StreamFromURL is false, it downloads the file first. Otherwise, it returns
+// the original InputPath (either local file or URL for streaming).
+// Returns the path/URL to be used as input for ffmpeg, or an error.
 func (t *Transcoder) handleInput(ctx context.Context) (string, error) {
-	// If input is not remote or explicit flag set to false, just return the path
+	// If input is a URL and StreamFromURL is true, use the URL directly.
+	if t.options.IsRemoteInput && t.options.StreamFromURL {
+		t.logger.Info("Streaming directly from URL", "transcoder", map[string]interface{}{
+			"url": t.options.InputPath,
+		})
+		// Basic validation of the URL format itself
+		_, err := url.ParseRequestURI(t.options.InputPath)
+		if err != nil {
+			return "", errors.Wrap(err, errors.ValidationError, "Invalid input URL for streaming", 5)
+		}
+		return t.options.InputPath, nil // Return the URL
+	}
+
+	// If input is not remote, check if the local file exists.
 	if !t.options.IsRemoteInput {
-		// Check if file exists locally
 		if _, err := os.Stat(t.options.InputPath); os.IsNotExist(err) {
 			return "", errors.New(errors.ValidationError, "Input file does not exist", t.options.InputPath, 4)
 		}
-		return t.options.InputPath, nil
+		return t.options.InputPath, nil // Return the local file path
 	}
 
-	// Input is a URL, download it
-	t.logger.Info("Downloading remote input", "transcoder", map[string]interface{}{
+	// --- Download Logic (only runs if IsRemoteInput is true and StreamFromURL is false) ---
+
+	// Ensure downloader is available (validated in constructor, but double-check)
+	if t.downloader == nil {
+		return "", errors.New(errors.SystemError, "Downloader is required but not available", "", 10) // Should not happen if constructor validation is correct
+	}
+
+	t.logger.Info("Downloading remote input before transcoding", "transcoder", map[string]interface{}{
 		"url": t.options.InputPath,
 	})
 
@@ -243,38 +283,27 @@ func (t *Transcoder) handleInput(ctx context.Context) (string, error) {
 	// Set output path for download
 	downloadPath := filepath.Join(t.options.DownloadDir, fileName)
 
-	// Se não tivermos um downloader, criar um especificamente para este download
+	// Initialize variable for downloaded path
 	var downloadedPath string
-	if t.downloader == nil {
-		// Initialize downloader com opções para este download específico
-		dl := downloader.New(downloader.Options{
-			URL:           t.options.InputPath,
-			OutputPath:    downloadPath,
-			Timeout:       30 * time.Minute,
-			Progress:      t.progRep,
-			AllowOverride: t.options.AllowOverwrite,
-		})
 
-		// Download file
-		downloadedPath, err = dl.Download(ctx)
-		if err != nil {
-			return "", errors.Wrap(err, errors.DownloadError, "Failed to download input file", 7)
-		}
-	} else {
-		// Usar o downloader existente, primeiro configurando-o para esta tarefa
-		t.downloader = downloader.New(downloader.Options{
-			URL:           t.options.InputPath,
-			OutputPath:    downloadPath,
-			Timeout:       30 * time.Minute,
-			Progress:      t.progRep,
-			AllowOverride: t.options.AllowOverwrite,
-		})
+	// Usar o downloader existente, primeiro configurando-o para esta tarefa
+	downloadOptions := downloader.Options{
+		URL:           t.options.InputPath,
+		OutputPath:    downloadPath,
+		Timeout:       30 * time.Minute, // TODO: Make timeout configurable?
+		Progress:      t.progRep,
+		AllowOverride: t.options.AllowOverwrite,
+	}
 
-		// Download file
-		downloadedPath, err = t.downloader.Download(ctx)
-		if err != nil {
-			return "", errors.Wrap(err, errors.DownloadError, "Failed to download input file", 7)
-		}
+	// Se um downloader foi injetado, reconfigure-o
+	// Isso é um pouco estranho, idealmente o downloader seria configurado uma vez.
+	// TODO: Refatorar a forma como o downloader é configurado/reutilizado?
+	*t.downloader = *downloader.New(downloadOptions) // Reconfigura o downloader existente
+
+	// Download file
+	downloadedPath, err = t.downloader.Download(ctx)
+	if err != nil {
+		return "", errors.Wrap(err, errors.DownloadError, "Failed to download input file", 7)
 	}
 
 	return downloadedPath, nil
