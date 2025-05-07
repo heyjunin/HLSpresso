@@ -291,6 +291,7 @@ func TestTranscoderHandleInput(t *testing.T) {
 		expectDownload   bool                   // Whether downloader.Download should be called
 		expectedInputArg string                 // Expected path/URL returned by handleInput
 		wantErr          bool
+		setupFunc        func(t *testing.T, inputPath string) // Função para configuração especial para o teste
 	}{
 		{
 			name: "Local Input",
@@ -301,6 +302,17 @@ func TestTranscoderHandleInput(t *testing.T) {
 			expectDownload:   false,
 			expectedInputArg: "testdata/local_video.mp4",
 			wantErr:          false,
+			setupFunc: func(t *testing.T, inputPath string) {
+				// Criar um arquivo local com conteúdo para evitar erro de arquivo vazio
+				testDir := filepath.Dir(inputPath)
+				if err := os.MkdirAll(testDir, 0755); err != nil {
+					t.Fatalf("Failed to create testdata dir: %v", err)
+				}
+				// Adicionar conteúdo para não ser considerado vazio
+				if err := os.WriteFile(inputPath, []byte("dummy video content"), 0644); err != nil {
+					t.Fatalf("Failed to create dummy input file: %v", err)
+				}
+			},
 		},
 		{
 			name: "Remote Input, Stream Enabled",
@@ -312,7 +324,7 @@ func TestTranscoderHandleInput(t *testing.T) {
 			mockDownloader:   nil, // Downloader not needed
 			expectDownload:   false,
 			expectedInputArg: "http://example.com/stream.mp4",
-			wantErr:          false,
+			wantErr:          true, // Mudado para true, pois a verificação de URL agora verifica status code e content type
 		},
 		{
 			name: "Remote Input, Stream Disabled, Downloader Provided",
@@ -354,17 +366,16 @@ func TestTranscoderHandleInput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create a dummy local file if needed for the test case
-			if tt.name == "Local Input" {
-				testDir := filepath.Dir(tt.opts.InputPath)
-				if err := os.MkdirAll(testDir, 0755); err != nil {
-					t.Fatalf("Failed to create testdata dir: %v", err)
-				}
-				if _, err := os.Create(tt.opts.InputPath); err != nil {
-					t.Fatalf("Failed to create dummy input file: %v", err)
-				}
-				defer os.Remove(tt.opts.InputPath)
-				defer os.Remove(testDir)
+			// Execute a função de configuração para este teste, se existir
+			if tt.setupFunc != nil {
+				tt.setupFunc(t, tt.opts.InputPath)
+				defer func() {
+					// Limpar arquivos criados no setupFunc
+					if tt.name == "Local Input" {
+						os.Remove(tt.opts.InputPath)
+						os.Remove(filepath.Dir(tt.opts.InputPath))
+					}
+				}()
 			}
 
 			trans, err := NewWithDeps(tt.opts, mockReporter, mockLogger, tt.mockDownloader)
@@ -379,10 +390,6 @@ func TestTranscoderHandleInput(t *testing.T) {
 				t.Fatalf("NewWithDeps failed unexpectedly: %v", err)
 			}
 
-			// --- Mocking download call is difficult here ---
-			// We will primarily test the logic paths and return values of handleInput
-			// rather than intercepting the download call itself without refactoring.
-
 			// --- Call handleInput ---
 			actualInputArg, err := trans.handleInput(ctx)
 
@@ -392,21 +399,8 @@ func TestTranscoderHandleInput(t *testing.T) {
 			}
 
 			if !tt.wantErr && actualInputArg != tt.expectedInputArg {
-				// Correct the expected path if it depends on the temp dir
-				expectedArg := tt.expectedInputArg
-				// Don't check expected path if we expected an error (like download failure)
-				// if tt.name == "Remote Input, Stream Disabled, Downloader Provided" {
-				// 	expectedArg = filepath.Join(trans.options.DownloadDir, "download.mp4")
-				// }
-				if actualInputArg != expectedArg {
-					t.Errorf("handleInput() returned input = %q, want %q", actualInputArg, expectedArg)
-				}
+				t.Errorf("handleInput() returned input = %q, want %q", actualInputArg, tt.expectedInputArg)
 			}
-
-			// We cannot reliably check downloadCalled here without proper mocking.
-			// if tt.expectDownload != downloadCalled {
-			// 	t.Errorf("handleInput() download called = %v, want %v", downloadCalled, tt.expectDownload)
-			// }
 		})
 	}
 }

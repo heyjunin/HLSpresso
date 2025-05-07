@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -18,6 +20,8 @@ import (
 	"github.com/heyjunin/HLSpresso/pkg/hls"
 	"github.com/heyjunin/HLSpresso/pkg/logger"
 	"github.com/heyjunin/HLSpresso/pkg/progress"
+	"golang.org/x/sys/unix"
+	stderrors "errors" // Renomeado para evitar conflito
 )
 
 // OutputType represents the type of output to generate (HLS or MP4).
@@ -247,14 +251,104 @@ func (t *Transcoder) handleInput(ctx context.Context) (string, error) {
 		if err != nil {
 			return "", errors.Wrap(err, errors.ValidationError, "Invalid input URL for streaming", 5)
 		}
+		
+		// Verificar se a URL é acessível antes de prosseguir
+		timeout := time.Second * 10
+		client := http.Client{
+			Timeout: timeout,
+		}
+		
+		req, err := http.NewRequestWithContext(ctx, http.MethodHead, t.options.InputPath, nil)
+		if err != nil {
+			return "", errors.Wrap(err, errors.NetworkError, errors.GetErrorMessage(errors.ErrNetworkConnectionFailed), errors.ErrNetworkConnectionFailed)
+		}
+		
+		resp, err := client.Do(req)
+		if err != nil {
+			if os.IsTimeout(err) {
+				return "", errors.Wrap(err, errors.NetworkError, errors.GetErrorMessage(errors.ErrNetworkTimeout), errors.ErrNetworkTimeout)
+			}
+			
+			// Verificar o erro de DNS - precisamos garantir que não seja caso-sensível e inclua variações comuns
+			errMsg := strings.ToLower(err.Error())
+			if strings.Contains(errMsg, "no such host") || 
+			   strings.Contains(errMsg, "lookup") || 
+			   strings.Contains(errMsg, "dns") || 
+			   strings.Contains(errMsg, "could not resolve") || 
+			   strings.Contains(errMsg, "unknown host") {
+				return "", errors.Wrap(err, errors.NetworkError, errors.GetErrorMessage(errors.ErrNetworkDNSFailure), errors.ErrNetworkDNSFailure)
+			}
+			
+			// Outros erros de conexão
+			if strings.Contains(err.Error(), "dial") || strings.Contains(err.Error(), "connection") {
+				return "", errors.Wrap(err, errors.NetworkError, errors.GetErrorMessage(errors.ErrNetworkConnectionFailed), errors.ErrNetworkConnectionFailed)
+			}
+			
+			return "", errors.Wrap(err, errors.NetworkError, errors.GetErrorMessage(errors.ErrNetworkConnectionFailed), errors.ErrNetworkConnectionFailed)
+		}
+		
+		defer resp.Body.Close()
+		
+		if resp.StatusCode >= 400 {
+			return "", errors.New(errors.NetworkError, errors.GetErrorMessage(errors.ErrNetworkServerUnavailable), 
+				fmt.Sprintf("Server returned status code %d", resp.StatusCode), errors.ErrNetworkServerUnavailable)
+		}
+		
+		// Verificar se é um formato de vídeo suportado
+		contentType := resp.Header.Get("Content-Type")
+		if !strings.HasPrefix(contentType, "video/") && !strings.Contains(contentType, "application/octet-stream") {
+			return "", errors.New(errors.InvalidFileFormatError, errors.GetErrorMessage(errors.ErrInvalidFileFormat), 
+				fmt.Sprintf("Content-Type: %s", contentType), errors.ErrInvalidFileFormat)
+		}
+		
 		return t.options.InputPath, nil // Return the URL
 	}
 
 	// If input is not remote, check if the local file exists.
 	if !t.options.IsRemoteInput {
-		if _, err := os.Stat(t.options.InputPath); os.IsNotExist(err) {
-			return "", errors.New(errors.ValidationError, "Input file does not exist", t.options.InputPath, 4)
+		// Verificar existência do arquivo
+		info, err := os.Stat(t.options.InputPath)
+		if os.IsNotExist(err) {
+			return "", errors.New(errors.FileNotFoundError, errors.GetErrorMessage(errors.ErrFileNotFound), 
+				t.options.InputPath, errors.ErrFileNotFound)
 		}
+		
+		// Verificar se é realmente um arquivo e não um diretório
+		if info.IsDir() {
+			return "", errors.New(errors.InvalidFileFormatError, "O caminho fornecido é um diretório, não um arquivo", 
+				t.options.InputPath, errors.ErrInvalidFileFormat)
+		}
+		
+		// Verificar permissões de leitura
+		file, err := os.Open(t.options.InputPath)
+		if err != nil {
+			if os.IsPermission(err) {
+				return "", errors.New(errors.PermissionError, errors.GetErrorMessage(errors.ErrReadPermissionDenied), 
+					t.options.InputPath, errors.ErrReadPermissionDenied)
+			}
+			return "", errors.Wrap(err, errors.SystemError, "Falha ao abrir o arquivo de entrada", 4)
+		}
+		file.Close()
+		
+		// Verificar se o arquivo tem tamanho não-zero
+		if info.Size() == 0 {
+			return "", errors.New(errors.InvalidFileFormatError, "O arquivo está vazio", 
+				t.options.InputPath, errors.ErrCorruptedFile)
+		}
+		
+		// Verificar extensão do arquivo para formatos comuns de vídeo
+		ext := strings.ToLower(filepath.Ext(t.options.InputPath))
+		supportedFormats := map[string]bool{
+			".mp4": true, ".mov": true, ".avi": true, ".mkv": true, ".webm": true,
+			".flv": true, ".wmv": true, ".mpeg": true, ".mpg": true, ".m4v": true,
+			".3gp": true, ".ts": true, ".mts": true, ".m2ts": true,
+		}
+		
+		if !supportedFormats[ext] {
+			return "", errors.New(errors.InvalidFileFormatError, errors.GetErrorMessage(errors.ErrUnsupportedFileFormat), 
+				fmt.Sprintf("Extensão: %s", ext), errors.ErrUnsupportedFileFormat)
+		}
+		
 		return t.options.InputPath, nil // Return the local file path
 	}
 
@@ -282,8 +376,28 @@ func (t *Transcoder) handleInput(ctx context.Context) (string, error) {
 		fileName = fmt.Sprintf("download_%d.mp4", time.Now().Unix())
 	}
 
+	// Verificar espaço em disco antes de iniciar o download
+	downloadDir := t.options.DownloadDir
+	var stat unix.Statfs_t
+	
+	// Verificar espaço disponível no diretório de download
+	if err := unix.Statfs(downloadDir, &stat); err == nil {
+		// Calcular espaço livre em bytes
+		freeSpace := stat.Bavail * uint64(stat.Bsize)
+		
+		// Verificar se há pelo menos 500MB disponíveis (valor arbitrário, ajustar conforme necessário)
+		minRequiredSpace := uint64(500 * 1024 * 1024) // 500 MB
+		if freeSpace < minRequiredSpace {
+			return "", errors.New(errors.DiskSpaceError, errors.GetErrorMessage(errors.ErrDiskSpaceInsufficient), 
+				fmt.Sprintf("Espaço disponível: %d bytes", freeSpace), errors.ErrDiskSpaceInsufficient)
+		}
+	}
+
 	// Create download directory
 	if err := os.MkdirAll(t.options.DownloadDir, 0755); err != nil {
+		if os.IsPermission(err) {
+			return "", errors.Wrap(err, errors.PermissionError, errors.GetErrorMessage(errors.ErrWritePermissionDenied), errors.ErrWritePermissionDenied)
+		}
 		return "", errors.Wrap(err, errors.SystemError, "Failed to create download directory", 6)
 	}
 
@@ -293,7 +407,7 @@ func (t *Transcoder) handleInput(ctx context.Context) (string, error) {
 	// Initialize variable for downloaded path
 	var downloadedPath string
 
-	// Usar o downloader existente, primeiro configurando-o para esta tarefa
+	// Configurar o downloader existente para esta tarefa
 	downloadOptions := downloader.Options{
 		URL:           t.options.InputPath,
 		OutputPath:    downloadPath,
@@ -303,13 +417,28 @@ func (t *Transcoder) handleInput(ctx context.Context) (string, error) {
 	}
 
 	// Se um downloader foi injetado, reconfigure-o
-	// Isso é um pouco estranho, idealmente o downloader seria configurado uma vez.
-	// TODO: Refatorar a forma como o downloader é configurado/reutilizado?
-	*t.downloader = *downloader.New(downloadOptions) // Reconfigura o downloader existente
+	*t.downloader = *downloader.New(downloadOptions)
 
 	// Download file
 	downloadedPath, err = t.downloader.Download(ctx)
 	if err != nil {
+		// Melhorar a tipagem de erros do downloader
+		if os.IsPermission(err) {
+			return "", errors.Wrap(err, errors.PermissionError, errors.GetErrorMessage(errors.ErrWritePermissionDenied), errors.ErrWritePermissionDenied)
+		}
+		
+		if strings.Contains(err.Error(), "no space") {
+			return "", errors.Wrap(err, errors.DiskSpaceError, errors.GetErrorMessage(errors.ErrDiskSpaceInsufficient), errors.ErrDiskSpaceInsufficient)
+		}
+		
+		if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "deadline exceeded") {
+			return "", errors.Wrap(err, errors.NetworkError, errors.GetErrorMessage(errors.ErrNetworkTimeout), errors.ErrNetworkTimeout)
+		}
+		
+		if strings.Contains(err.Error(), "connection") || strings.Contains(err.Error(), "dial") {
+			return "", errors.Wrap(err, errors.NetworkError, errors.GetErrorMessage(errors.ErrNetworkConnectionFailed), errors.ErrNetworkConnectionFailed)
+		}
+		
 		return "", errors.Wrap(err, errors.DownloadError, "Failed to download input file", 7)
 	}
 
@@ -473,21 +602,344 @@ func getVideoDuration(filePath string) float64 {
 	return duration
 }
 
-// checkFFmpeg checks if FFmpeg is available
+// checkFFmpeg verifies that FFmpeg is installed and working correctly,
+// including checking for essential codecs and dependencies.
 func (t *Transcoder) checkFFmpeg() error {
 	cmd := exec.Command(t.options.FFmpegBinary, "-version")
-	if err := cmd.Run(); err != nil {
-		return errors.New(errors.SystemError, "FFmpeg is not available", "", 14)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return errors.Wrap(err, errors.CodecNotFoundError, 
+			errors.GetErrorMessage(errors.ErrMissingDependency), 
+			errors.ErrMissingDependency)
 	}
+
+	outputStr := string(output)
+	t.logger.Debug("FFmpeg version info", "ffmpeg", map[string]interface{}{
+		"version_output": outputStr,
+	})
+
+	// Verificar codecs importantes
+	cmd = exec.Command(t.options.FFmpegBinary, "-codecs")
+	codecsOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return errors.Wrap(err, errors.SystemError, "Falha ao verificar codecs do FFmpeg", 20)
+	}
+
+	codecsStr := string(codecsOutput)
+	
+	// Verificar se os codecs principais estão presentes
+	requiredCodecs := []struct {
+		name        string
+		searchTerm  string
+		errorCode   int
+	}{
+		{"libx264", "libx264", errors.ErrCodecNotFound},
+		{"AAC audio", "aac", errors.ErrCodecNotSupported},
+	}
+
+	for _, codec := range requiredCodecs {
+		if !strings.Contains(codecsStr, codec.searchTerm) {
+			return errors.New(errors.CodecNotFoundError, 
+				errors.GetErrorMessage(codec.errorCode), 
+				fmt.Sprintf("Codec %s não encontrado", codec.name), 
+				codec.errorCode)
+		}
+	}
+
 	return nil
 }
 
-// transcodeToMP4 transcodes the video to MP4
+// transcodeToMP4 converts the input to MP4 format
 func (t *Transcoder) transcodeToMP4(ctx context.Context, inputPath, outputPath string) (string, error) {
-	return t.createMP4(ctx, inputPath)
+	t.logger.Info("Transcoding to MP4", "transcoder", map[string]interface{}{
+		"input":  inputPath,
+		"output": outputPath,
+	})
+
+	// Create output directory if needed
+	outputDir := filepath.Dir(outputPath)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		if os.IsPermission(err) {
+			return "", errors.Wrap(err, errors.PermissionError, 
+				errors.GetErrorMessage(errors.ErrWritePermissionDenied), 
+				errors.ErrWritePermissionDenied)
+		}
+		
+		// Verificar se há espaço no disco
+		var stat unix.Statfs_t
+		if unix.Statfs(outputDir, &stat) == nil {
+			freeSpace := stat.Bavail * uint64(stat.Bsize)
+			if freeSpace < uint64(500*1024*1024) { // 500MB mínimo
+				return "", errors.New(errors.DiskSpaceError, 
+					errors.GetErrorMessage(errors.ErrDiskSpaceInsufficient), 
+					fmt.Sprintf("Espaço livre: %d bytes", freeSpace), 
+					errors.ErrDiskSpaceInsufficient)
+			}
+		}
+		
+		return "", errors.Wrap(err, errors.SystemError, "Failed to create output directory", 10)
+	}
+
+	// Verificar se já existe um arquivo de saída e se podemos sobrescrevê-lo
+	if _, err := os.Stat(outputPath); err == nil && !t.options.AllowOverwrite {
+		return "", errors.New(errors.InvalidOutputPathError, 
+			"O arquivo de saída já existe e a sobrescrita não está permitida", 
+			outputPath, errors.ErrInvalidOutputPath)
+	}
+
+	// Build FFmpeg command for MP4 output
+	args := []string{
+		"-i", inputPath,
+		"-c:v", "libx264",
+		"-preset", "medium",
+		"-crf", "22",
+		"-c:a", "aac",
+		"-b:a", "128k",
+	}
+
+	// Add any extra parameters
+	args = append(args, t.options.FFmpegExtraParams...)
+
+	// Add output path
+	args = append(args, "-y", outputPath)
+
+	// Log FFmpeg command
+	cmdStr := t.options.FFmpegBinary + " " + strings.Join(args, " ")
+	t.logger.Debug("Executing FFmpeg command", "ffmpeg", map[string]interface{}{
+		"command": cmdStr,
+	})
+
+	// Run FFmpeg command
+	cmd := exec.CommandContext(ctx, t.options.FFmpegBinary, args...)
+
+	// Capture stderr for progress tracking
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return "", errors.Wrap(err, errors.TranscodingError, "Failed to create stderr pipe", 11)
+	}
+
+	// Start command
+	if err := cmd.Start(); err != nil {
+		if strings.Contains(err.Error(), "no such file") {
+			return "", errors.Wrap(err, errors.CodecNotFoundError, 
+				errors.GetErrorMessage(errors.ErrMissingDependency), 
+				errors.ErrMissingDependency)
+		}
+		return "", errors.Wrap(err, errors.TranscodingError, "Failed to start FFmpeg", 12)
+	}
+
+	// Start progress reader in a goroutine
+	go func() {
+		t.trackProgress(stderr)
+	}()
+
+	// Wait for completion
+	if err := cmd.Wait(); err != nil {
+		var exitErr *exec.ExitError
+		if stderrors.As(err, &exitErr) {
+			// Analisar o código de saída para determinar o tipo de erro
+			if exitErr.ExitCode() == 1 {
+				// Verificar se há problemas comuns de codec
+				errOutput := string(exitErr.Stderr)
+				if strings.Contains(errOutput, "Unknown encoder") {
+					return "", errors.Wrap(err, errors.CodecNotFoundError, 
+						errors.GetErrorMessage(errors.ErrCodecNotFound), 
+						errors.ErrCodecNotFound)
+				}
+				
+				// Verificar se há problemas de memória
+				if strings.Contains(errOutput, "Cannot allocate memory") || 
+				   strings.Contains(errOutput, "out of memory") {
+					return "", errors.Wrap(err, errors.MemoryError, 
+						errors.GetErrorMessage(errors.ErrOutOfMemory), 
+						errors.ErrOutOfMemory)
+				}
+				
+				// Verificar problemas com o formato do arquivo
+				if strings.Contains(errOutput, "Invalid data") || 
+				   strings.Contains(errOutput, "could not find codec parameters") {
+					return "", errors.Wrap(err, errors.InvalidFileFormatError, 
+						errors.GetErrorMessage(errors.ErrCorruptedFile), 
+						errors.ErrCorruptedFile)
+				}
+			}
+		}
+		
+		return "", errors.Wrap(err, errors.TranscodingError, "FFmpeg process failed", 13)
+	}
+
+	// Check if output file exists
+	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
+		return "", errors.New(errors.TranscodingError, "Output file was not created", outputPath, 14)
+	}
+
+	t.logger.Info("Transcoding completed successfully", "transcoder", map[string]interface{}{
+		"output_path": outputPath,
+	})
+
+	return outputPath, nil
 }
 
-// createHLSStreams creates HLS adaptive streaming files
+// trackProgress lê a saída do FFmpeg em stderr e atualiza o progresso da transcodificação
+func (t *Transcoder) trackProgress(stderr io.ReadCloser) {
+	scanner := bufio.NewScanner(stderr)
+	timeRegex := regexp.MustCompile(`time=(\d+):(\d+):(\d+\.\d+)`)
+	
+	for scanner.Scan() {
+		line := scanner.Text()
+		
+		// Log FFmpeg output
+		t.logger.Debug(line, "ffmpeg", nil)
+		
+		// Se não temos reporter de progresso, apenas continue registrando a saída
+		if t.progRep == nil {
+			continue
+		}
+		
+		// Procurar informações de tempo no formato HH:MM:SS.MS
+		if matches := timeRegex.FindStringSubmatch(line); len(matches) > 3 {
+			hours, _ := strconv.Atoi(matches[1])
+			minutes, _ := strconv.Atoi(matches[2])
+			seconds, _ := strconv.ParseFloat(matches[3], 64)
+			
+			// Converter para segundos
+			currentTime := float64(hours*3600) + float64(minutes*60) + seconds
+			
+			// Atualizar o progresso (valor entre 0-100 ou valor absoluto em segundos)
+			t.progRep.Update(int64(currentTime), "transcoding", fmt.Sprintf("Processando: %02d:%02d:%05.2f", hours, minutes, seconds))
+		}
+	}
+}
+
+// createHLSStreams converts the input to HLS format with multiple quality levels
 func (t *Transcoder) createHLSStreams(ctx context.Context, inputPath, outputPath string) (string, error) {
-	return t.createHLS(ctx, inputPath)
+	t.logger.Info("Creating HLS adaptive streams", "transcoder", map[string]interface{}{
+		"input":  inputPath,
+		"output": outputPath,
+	})
+
+	// Create output directory if it doesn't exist
+	if err := os.MkdirAll(outputPath, 0755); err != nil {
+		if os.IsPermission(err) {
+			return "", errors.Wrap(err, errors.PermissionError, 
+				errors.GetErrorMessage(errors.ErrWritePermissionDenied), 
+				errors.ErrWritePermissionDenied)
+		}
+		
+		// Verificar espaço em disco
+		var stat unix.Statfs_t
+		if unix.Statfs(outputPath, &stat) == nil {
+			freeSpace := stat.Bavail * uint64(stat.Bsize)
+			// Para HLS precisamos de mais espaço (múltiplas resoluções)
+			if freeSpace < uint64(1024*1024*1024) { // 1GB mínimo
+				return "", errors.New(errors.DiskSpaceError, 
+					errors.GetErrorMessage(errors.ErrDiskSpaceInsufficient), 
+					fmt.Sprintf("Espaço livre: %d bytes", freeSpace), 
+					errors.ErrDiskSpaceInsufficient)
+			}
+		}
+		
+		return "", errors.Wrap(err, errors.SystemError, "Failed to create output directory", 15)
+	}
+
+	// Verificar se o caminho é acessível para escrita
+	testFile := filepath.Join(outputPath, "test_write_permission.tmp")
+	tmpFile, err := os.Create(testFile)
+	if err != nil {
+		if os.IsPermission(err) {
+			return "", errors.New(errors.PermissionError, 
+				errors.GetErrorMessage(errors.ErrWritePermissionDenied), 
+				outputPath, errors.ErrWritePermissionDenied)
+		}
+		return "", errors.Wrap(err, errors.InvalidOutputPathError, 
+			errors.GetErrorMessage(errors.ErrOutputPathNotAccessible), 
+			errors.ErrOutputPathNotAccessible)
+	}
+	tmpFile.Close()
+	os.Remove(testFile)
+
+	// Verificar resoluções
+	for _, res := range t.options.HLSResolutions {
+		if res.Width <= 0 || res.Height <= 0 {
+			return "", errors.New(errors.UnsupportedResolutionError, 
+				errors.GetErrorMessage(errors.ErrInvalidResolution), 
+				fmt.Sprintf("Resolução inválida: %dx%d", res.Width, res.Height), 
+				errors.ErrInvalidResolution)
+		}
+		
+		// Verificar se a resolução é muito alta (limites arbitrários, ajustar conforme necessário)
+		if res.Width > 7680 || res.Height > 4320 { // Limite 8K
+			return "", errors.New(errors.UnsupportedResolutionError, 
+				errors.GetErrorMessage(errors.ErrResolutionTooHigh), 
+				fmt.Sprintf("Resolução muito alta: %dx%d", res.Width, res.Height), 
+				errors.ErrResolutionTooHigh)
+		}
+		
+		// Verificar se a resolução é muito baixa
+		if res.Width < 128 || res.Height < 96 {
+			return "", errors.New(errors.UnsupportedResolutionError, 
+				errors.GetErrorMessage(errors.ErrResolutionTooLow), 
+				fmt.Sprintf("Resolução muito baixa: %dx%d", res.Width, res.Height), 
+				errors.ErrResolutionTooLow)
+		}
+	}
+
+	// Set HLS options
+	hlsOptions := hls.Options{
+		InputFile:         inputPath,
+		OutputDir:         outputPath,
+		SegmentDuration:   t.options.HLSSegmentDuration,
+		PlaylistType:      t.options.HLSPlaylistType,
+		Resolutions:       t.options.HLSResolutions,
+		FFmpegBinary:      t.options.FFmpegBinary,
+		FFmpegExtraParams: t.options.FFmpegExtraParams,
+		Progress:          t.progRep,
+	}
+
+	// Create HLS generator
+	hlsGen := hls.New(hlsOptions)
+
+	// Generate HLS streams
+	masterPlaylistPath, err := hlsGen.CreateHLS(ctx)
+	if err != nil {
+		// Analisar a mensagem de erro para fornecer mais detalhes
+		errMsg := err.Error()
+		
+		if strings.Contains(errMsg, "codec") || strings.Contains(errMsg, "encoder") {
+			return "", errors.Wrap(err, errors.CodecNotFoundError, 
+				errors.GetErrorMessage(errors.ErrCodecNotFound), 
+				errors.ErrCodecNotFound)
+		}
+		
+		if strings.Contains(errMsg, "memory") || strings.Contains(errMsg, "allocate") {
+			return "", errors.Wrap(err, errors.MemoryError, 
+				errors.GetErrorMessage(errors.ErrOutOfMemory), 
+				errors.ErrOutOfMemory)
+		}
+		
+		if strings.Contains(errMsg, "permission") {
+			return "", errors.Wrap(err, errors.PermissionError, 
+				errors.GetErrorMessage(errors.ErrWritePermissionDenied), 
+				errors.ErrWritePermissionDenied)
+		}
+		
+		if strings.Contains(errMsg, "no space") {
+			return "", errors.Wrap(err, errors.DiskSpaceError, 
+				errors.GetErrorMessage(errors.ErrDiskSpaceInsufficient), 
+				errors.ErrDiskSpaceInsufficient)
+		}
+		
+		return "", errors.Wrap(err, errors.HLSError, "Failed to create HLS streams", 16)
+	}
+
+	// Verificar se o arquivo master playlist foi criado
+	if _, err := os.Stat(masterPlaylistPath); os.IsNotExist(err) {
+		return "", errors.New(errors.HLSError, "Master playlist não foi criado", outputPath, 17)
+	}
+
+	t.logger.Info("HLS creation completed successfully", "transcoder", map[string]interface{}{
+		"master_playlist": masterPlaylistPath,
+	})
+
+	return masterPlaylistPath, nil
 }
