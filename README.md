@@ -316,6 +316,115 @@ The binaries will be available in the `build` directory.
 }
 ```
 
+## 🛠️ Error Handling System
+
+HLSpresso includes a robust error handling system designed to provide clear, actionable information when issues occur. All errors are structured with detailed information to help you quickly diagnose and resolve problems.
+
+### Error Types
+
+The library implements several specialized error types to address different failure scenarios:
+
+| Error Type | Description | Code Range |
+|------------|-------------|------------|
+| NetworkError | Connection and network-related issues | 1000-1099 |
+| DiskSpaceError | Storage and disk space issues | 1100-1199 |
+| FileNotFoundError | Missing input files or directories | 1200-1299 |
+| InvalidFileFormatError | Unsupported or corrupted file formats | 1300-1399 |
+| PermissionError | Access permission issues | 1400-1499 |
+| MemoryError | Memory allocation problems | 1500-1599 |
+| CodecNotFoundError | Missing or incompatible codecs | 1600-1699 |
+| InvalidOutputPathError | Output path issues | 1700-1799 |
+| UnsupportedResolutionError | Video resolution problems | 1800-1899 |
+
+### Error Structure
+
+Each error contains the following information:
+
+- **Type**: The category of error (e.g., `network_error`, `disk_space_error`)
+- **Message**: User-friendly description of what went wrong
+- **Details**: Technical details or underlying error message
+- **Timestamp**: When the error occurred (RFC3339 format)
+- **Code**: Specific error code for precise identification
+
+### Handling Errors in Your Code
+
+When using HLSpresso as a library, you can catch and process structured errors:
+
+```go
+outputFilePath, err := transcoder.Transcode(ctx)
+if err != nil {
+    // Check if it's a structured error
+    if sErr, ok := err.(*errors.StructuredError); ok {
+        // Access structured error fields
+        fmt.Printf("Error %d: %s\n", sErr.Code, sErr.Message)
+        
+        // Handle specific error types
+        switch sErr.Type {
+        case errors.NetworkError:
+            fmt.Println("Network issue detected. Check your connection.")
+        case errors.DiskSpaceError:
+            fmt.Println("Not enough disk space. Free up space and try again.")
+        case errors.FileNotFoundError:
+            fmt.Println("Input file couldn't be found. Check the path.")
+        // Handle other error types...
+        }
+        
+        // Log the full error details
+        jsonErr, _ := sErr.JSON()
+        logger.Error(jsonErr)
+    } else {
+        // Handle non-structured errors
+        fmt.Printf("Generic error: %v\n", err)
+    }
+    return
+}
+```
+
+### Common Error Codes and Solutions
+
+#### Network Errors (1000-1099)
+- **1000 (ErrNetworkConnectionFailed)**: Connection to remote server failed
+  - *Solution*: Check your internet connection and the server URL
+- **1001 (ErrNetworkTimeout)**: Network operation timed out
+  - *Solution*: Check your connection speed or try again later
+- **1002 (ErrNetworkDNSFailure)**: DNS resolution failed
+  - *Solution*: Verify the server address or check your DNS settings
+- **1003 (ErrNetworkServerUnavailable)**: Remote server unavailable
+  - *Solution*: Verify the server is running or try again later
+
+#### Disk Space Errors (1100-1199)
+- **1100 (ErrDiskSpaceInsufficient)**: Not enough disk space
+  - *Solution*: Free up disk space or use a different output location
+- **1101 (ErrDiskQuotaExceeded)**: User or system disk quota exceeded
+  - *Solution*: Clear disk space or request a quota increase
+
+#### File Errors (1200-1399)
+- **1200 (ErrFileNotFound)**: Input file not found
+  - *Solution*: Verify the file path and existence
+- **1300 (ErrInvalidFileFormat)**: File format not supported
+  - *Solution*: Use a supported format (MP4, MOV, AVI, MKV, WEBM)
+- **1302 (ErrCorruptedFile)**: Input file is corrupted
+  - *Solution*: Check file integrity or obtain a clean copy
+
+#### Permission Errors (1400-1499)
+- **1400 (ErrPermissionDenied)**: Access permission denied
+  - *Solution*: Check file/directory permissions
+
+#### Codec Errors (1600-1699)
+- **1600 (ErrCodecNotFound)**: Required codec not found
+  - *Solution*: Install missing codec or FFmpeg component
+- **1602 (ErrMissingDependency)**: Missing dependency (usually FFmpeg)
+  - *Solution*: Install FFmpeg and required dependencies
+
+### Error Prevention Best Practices
+
+1. **Verify input files** before starting transcoding operations
+2. **Check available disk space** for output, especially for HLS which creates multiple files
+3. **Validate file formats** to ensure they're supported
+4. **Handle network operations** with appropriate timeouts and retries
+5. **Check permissions** for both input files and output directories
+6. **Monitor memory usage** when processing large files
+
 ## 🔌 Advanced Integration
 
 ### Using as a Library
