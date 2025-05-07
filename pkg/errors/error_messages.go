@@ -56,4 +56,3 @@ func GetErrorMessage(code int) string {
 	}
 	return "Erro desconhecido."
 }
-
