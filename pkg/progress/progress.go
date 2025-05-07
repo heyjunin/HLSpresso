@@ -124,6 +124,7 @@ type DefaultReporter struct {
 	updatesCh  chan ProgressEvent
 	lastUpdate time.Time
 	Event      ProgressEvent
+	completed  bool              // Flag to track whether Complete() has been called
 	mu         sync.Mutex // Protects access to shared fields
 }
 
@@ -230,9 +231,9 @@ func (r *DefaultReporter) Complete() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.Bar == nil {
-		return
-	} // Not started or already completed
+	if r.completed || r.Bar == nil {
+		return // Already completed or not started
+	}
 
 	_ = r.Bar.Finish()
 	r.Current = r.Total
@@ -243,7 +244,10 @@ func (r *DefaultReporter) Complete() {
 	r.sendUpdateInternal(true)    // Send final update regardless of throttle
 	r.writeProgressFileInternal() // Write final state
 	r.Bar = nil                   // Mark as finished to prevent further updates
-	close(r.updatesCh)            // Close deprecated channel
+	
+	// Close the updates channel and mark as completed
+	close(r.updatesCh)
+	r.completed = true
 }
 
 // Updates returns the channel for receiving ProgressEvent updates.
@@ -272,10 +276,17 @@ func (r *DefaultReporter) sendUpdateInternal(force bool) {
 	}
 	r.lastUpdate = now
 
-	// Non-blocking send to deprecated channel
+	// Don't attempt to send if we're already marked as completed
+	if r.completed {
+		return
+	}
+
+	// Non-blocking send to channel with timeout to prevent blocking
 	select {
 	case r.updatesCh <- r.Event:
-	default:
+		// Successfully sent message
+	case <-time.After(time.Millisecond):
+		// Channel might be full or closed, don't panic
 	}
 }
 

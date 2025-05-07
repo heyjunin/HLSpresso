@@ -332,6 +332,8 @@ func TestTranscodeRemoteVideoToMP4(t *testing.T) {
 
 	// Criação do reporter de progresso
 	reporter := progress.NewReporter()
+	// Ensure reporter is properly closed at the end of the test
+	defer reporter.Complete()
 
 	// Configuração do transcoder
 	options := transcoder.Options{

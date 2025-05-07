@@ -52,7 +52,7 @@ func main() {
 	resultPath, err := trans.Transcode(ctx)
 	if err != nil {
 		if sErr, ok := err.(*errors.StructuredError); ok {
-			log.Fatalf("Transcoding failed [%s]: %s (Details: %v)", sErr.Code, sErr.Message, sErr.Details)
+			log.Fatalf("Transcoding failed [%d]: %s (Details: %v)", sErr.Code, sErr.Message, sErr.Details)
 		} else {
 			log.Fatalf("Transcoding failed: %v", err)
 		}
